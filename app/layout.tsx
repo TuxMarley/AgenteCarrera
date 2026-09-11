@@ -1,9 +1,5 @@
 import type { Metadata } from 'next';
-import { Manrope, Newsreader } from 'next/font/google';
 import './globals.css';
-
-const manrope = Manrope({ variable: '--font-manrope', subsets: ['latin'] });
-const newsreader = Newsreader({ variable: '--font-newsreader', subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'Evoluciona | Desarrollo de carrera',
@@ -23,7 +19,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="es">
-      <body className={`${manrope.variable} ${newsreader.variable}`}>{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
