@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
   full_name TEXT NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('collaborator', 'leader', 'admin')),
   manager_id TEXT,
-  current_job_role TEXT NOT NULL DEFAULT '',
+  "current_job_role" TEXT NOT NULL DEFAULT '',
   official_category TEXT,
   orientative_band TEXT,
   created_at BIGINT NOT NULL,
@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS career_model_versions (
 
 CREATE TABLE IF NOT EXISTS profile_analyses (
   user_id TEXT PRIMARY KEY,
-  current_role TEXT NOT NULL,
+  "current_role" TEXT NOT NULL,
   next_role TEXT,
   analysis_json TEXT NOT NULL,
   model TEXT NOT NULL,
