@@ -1,0 +1,1 @@
+ALTER TABLE `career_profiles` ADD `reviewer_private_observation` text;
