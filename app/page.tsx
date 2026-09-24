@@ -453,7 +453,7 @@ export default function Home() {
           {dashboardError && <p className="form-error page-error" role="alert">{dashboardError}</p>}
           <section className="hero" id="perfil">
             <div className="hero-copy">
-              <h1>{profile?.profileCompleted ? 'Hola, ' + firstName + '. Este es tu momento actual.' : 'Comencemos por tu perfil de desarrollo.'}</h1>
+              <h1>{profile?.profileCompleted ? <><span>Hola, {firstName}.</span> Este es tu momento actual.</> : <><span>Comencemos por tu</span> perfil de desarrollo.</>}</h1>
               <p>{profile?.profileCompleted ? 'Registra tareas y evidencias para preparar tus próximos pasos junto a tu líder.' : 'Describe tu posición y el trabajo que realizas. Estos datos son tuyos y no modifican ninguna categoría oficial.'}</p>
               <div className="human-loop"><span className="loop-icon"><Bot aria-hidden="true" /></span><span><strong>Orientación asistida por IA</strong><small>Es una sugerencia; requiere validación de tu líder y de RR. HH. para cualquier cambio oficial.</small></span></div>
             </div>
@@ -616,7 +616,7 @@ export default function Home() {
               )}
             </section>
 
-            <section className="panel career-panel career-explorer" id="ruta">
+            <section className="panel career-panel career-explorer" id="ruta" data-family={mapFamily?.id}>
               <div className="panel-heading">
                 <div><h2>Explora el mapa de carrera</h2><p className="panel-subtitle">Recorre familias, rutas y roles para entender qué cambia entre una posición y la siguiente.</p></div>
                 <span className="model-badge">{CAREER_MODEL_VERSION}</span>
