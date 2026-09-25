@@ -3,6 +3,7 @@ import { ensureDatabase, rawDb } from '@/db/runtime';
 import { apiError, getActor, requireRole } from '@/lib/authz';
 import { compactRecords, compactText } from '@/lib/ai-context';
 import { CAREER_MODEL_VERSION, getCareerRoleSelectionByLabel, getNextRole } from '@/lib/career-roles';
+import { feedbackCategoryLabels, type FeedbackCategory } from '@/lib/feedback-categories';
 
 type ProfileOrientation = {
   maturityBand: 'T1' | 'T2' | 'T3';
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
       profileCompleted: boolean;
       officialCategory: string | null;
     } | null;
-    const workActivities = dashboard.workActivities as Array<{ title: string; description: string; status: string; validationStatus: string; privateFeedback?: Array<{ content:string; createdAt:number }> }>;
+    const workActivities = dashboard.workActivities as Array<{ title: string; description: string; status: string; validationStatus: string; privateFeedback?: Array<{ category:FeedbackCategory; content:string; createdAt:number }> }>;
     const evidence = dashboard.evidence as Array<{ title: string; description: string; evidenceType: string; validationStatus: string }>;
 
     if (!profile?.profileCompleted) {
@@ -183,12 +184,14 @@ export async function POST(request: Request) {
         feedbackPrivadoLiderSobreTareas: compactRecords(
           workActivities.flatMap((activity) => (activity.privateFeedback ?? []).map((feedback) => ({
             tarea: activity.title,
+            categoria: feedbackCategoryLabels[feedback.category],
             texto: feedback.content,
             registradoEn: feedback.createdAt,
           }))),
           8,
-        ).map(({ tarea, texto, registradoEn }) => ({
+        ).map(({ tarea, categoria, texto, registradoEn }) => ({
           tarea: compactText(tarea, 120),
+          categoria,
           texto: compactText(texto, 600),
           registradoEn,
           uso: 'Contexto interno: no debe aparecer ni inferirse en la respuesta.',

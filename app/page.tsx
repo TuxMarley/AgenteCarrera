@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { CAREER_MODEL_VERSION, careerFamilies, getCareerRoleSelectionByLabel, getNextRole } from '@/lib/career-roles';
+import { feedbackCategoryLabels, feedbackCategoryOptions, type FeedbackCategory } from '@/lib/feedback-categories';
 
 type Profile = {
   id:string;
@@ -39,7 +40,7 @@ type WorkActivity = {
   id:string; title:string; description:string; status:'in_progress'|'completed'; completedAt:number|null;
   validationStatus:'pending_review'|'validated'|'changes_requested'; submittedForReview:boolean|number; reviewedAt?:number|null; reviewedByName?:string|null;
   evidence:Evidence[];
-  privateFeedback?:Array<{ id:string; content:string; createdAt:number; authorName:string|null }>;
+  privateFeedback?:Array<{ id:string; category:FeedbackCategory; content:string; createdAt:number; authorName:string|null }>;
 };
 type ProfileAnalysis = {
   maturityBand:'T1'|'T2'|'T3';
@@ -127,6 +128,7 @@ export default function Home() {
   const [taskEditBusy, setTaskEditBusy] = useState(false);
   const [taskSubmitBusy, setTaskSubmitBusy] = useState<string|null>(null);
   const [taskReviewFeedback, setTaskReviewFeedback] = useState<Record<string,string>>({});
+  const [taskFeedbackCategory, setTaskFeedbackCategory] = useState<Record<string,FeedbackCategory>>({});
   const [taskReviewBusy, setTaskReviewBusy] = useState<string|null>(null);
   const [taskReviewNotice, setTaskReviewNotice] = useState('');
   const [orientation, setOrientation] = useState<ProfileAnalysis | null>(null);
@@ -434,16 +436,18 @@ export default function Home() {
   async function saveTaskFeedback(activity: WorkActivity) {
     if (taskReviewBusy) return;
     const content = taskReviewFeedback[activity.id] ?? '';
+    const category = taskFeedbackCategory[activity.id] ?? 'general_ideas';
     setTaskReviewBusy(activity.id);
     setTaskReviewNotice('');
     try {
       const response = await fetch('/api/work-activities/' + activity.id + '/feedback', {
-        method:'POST', headers:{ ...demoHeaders, 'Content-Type':'application/json' }, body:JSON.stringify({ content }),
+        method:'POST', headers:{ ...demoHeaders, 'Content-Type':'application/json' }, body:JSON.stringify({ category, content }),
       });
       const data = await response.json() as { error?:string };
       if (!response.ok) { setTaskReviewNotice(data.error ?? 'No fue posible guardar el feedback.'); return; }
       setTaskReviewFeedback((current) => ({ ...current, [activity.id]:'' }));
-      setTaskReviewNotice('Feedback privado guardado como contexto interno para el próximo análisis.');
+      setTaskFeedbackCategory((current) => ({ ...current, [activity.id]:'general_ideas' }));
+      setTaskReviewNotice('Feedback privado categorizado y guardado como contexto interno para el próximo análisis.');
       await refreshDashboard();
     } catch { setTaskReviewNotice('No fue posible conectar para guardar el feedback.'); }
     finally { setTaskReviewBusy(null); }
@@ -730,8 +734,9 @@ export default function Home() {
                     <div className="task-copy"><strong>{activity.title}</strong><p>{activity.description}</p><small>{activity.status === 'completed' ? 'Completada' : 'En curso'} · declaración de la persona · <span className={'task-validation status-' + activity.validationStatus}>{taskValidationLabel(activity)}</span>{activity.reviewedByName ? ' · ' + activity.reviewedByName : ''}</small>
                       {role === 'collaborator' && taskEditingId === activity.id ? <form className="task-edit-form" onSubmit={(event) => void submitTaskEdit(event, activity)}><label>Tarea<input required minLength={3} maxLength={160} value={taskEditForm.title} onChange={(event) => setTaskEditForm((current) => ({ ...current, title:event.target.value }))} /></label><label>Contexto, aporte y resultado esperado<textarea required minLength={10} maxLength={1600} rows={3} value={taskEditForm.description} onChange={(event) => setTaskEditForm((current) => ({ ...current, description:event.target.value }))} /></label><div className="task-inline-actions"><button className="approve-button" type="submit" disabled={taskEditBusy}>{taskEditBusy ? 'Guardando…' : 'Guardar cambios'}</button><button className="outline-button" type="button" onClick={() => setTaskEditingId(null)} disabled={taskEditBusy}>Cancelar</button></div></form> : role === 'collaborator' && <div className="task-inline-actions"><button className="outline-button" type="button" onClick={() => openTaskEditor(activity)}>Editar tarea</button><button className="outline-button" type="button" onClick={() => openEvidenceModal(activity)}>Registrar avance y adjuntar evidencia</button>{!activity.submittedForReview && <button className="approve-button" type="button" onClick={() => void submitTaskForReview(activity)} disabled={taskSubmitBusy !== null}>{taskSubmitBusy === activity.id ? 'Enviando…' : 'Enviar a validación'}</button>}</div>}
                       <div className="task-evidence"><div className="task-evidence-heading"><strong>Avances y evidencias</strong><span>{activity.evidence.length} {activity.evidence.length === 1 ? 'registro' : 'registros'}</span></div>{activity.evidence.length > 0 ? <div className="task-evidence-list">{activity.evidence.map((evidence) => <article className="task-evidence-item" key={evidence.id}><div><span className="evidence-type">{evidenceTypeLabels[evidence.evidenceType] ?? evidence.evidenceType}</span><strong>{evidence.title}</strong><small>{evidenceStatusLabels[evidence.validationStatus]} · {new Date(evidence.occurredAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' })}</small></div><div className="task-evidence-actions">{evidence.originalFilename ? <button type="button" onClick={() => void downloadEvidenceFile(evidence)} disabled={evidenceFileBusy === evidence.id}>{evidenceFileBusy === evidence.id ? 'Preparando…' : 'Ver archivo adjunto'}</button> : <small>Sin archivo adjunto</small>}{role === 'collaborator' && <button type="button" onClick={() => openEvidenceModal(activity, evidence)}>Editar avance</button>}</div>{evidence.description && <p>{evidence.description}</p>}{evidence.leaderFeedback && <div className="evidence-feedback"><strong>Feedback de revisión{evidence.reviewedByName ? ' · ' + evidence.reviewedByName : ''}</strong><p>{evidence.leaderFeedback}</p></div>}{role === 'leader' && activity.submittedForReview && evidence.validationStatus === 'pending' && <div className="evidence-review"><label>Feedback para la persona (obligatorio si no validas)<textarea value={evidenceReviewFeedback[evidence.id] ?? ''} maxLength={1200} rows={3} onChange={(event) => setEvidenceReviewFeedback((current) => ({ ...current, [evidence.id]:event.target.value }))} placeholder="Explica qué se confirmó o qué falta para poder validar." /></label><div className="profile-form-actions"><button className="primary-button" type="button" onClick={() => void reviewEvidence(evidence, 'validate')} disabled={evidenceReviewBusy !== null}>{evidenceReviewBusy === evidence.id ? 'Registrando…' : 'Validar evidencia'}</button><button className="evidence-reject-button" type="button" onClick={() => void reviewEvidence(evidence, 'reject')} disabled={evidenceReviewBusy !== null}>No validar</button></div></div>}</article>)}</div> : <p className="task-evidence-empty">Aún no hay avances adjuntos. Añade una evidencia con archivo para poder enviar esta tarea a validación.</p>}</div>
-                      {role !== 'collaborator' && activity.privateFeedback && activity.privateFeedback.length > 0 && <div className="task-private-feedback"><strong>Feedback privado del líder</strong>{activity.privateFeedback.map((feedback) => <p key={feedback.id}>{feedback.content}<small>{feedback.authorName ? feedback.authorName + ' · ' : ''}{new Date(feedback.createdAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' })}</small></p>)}</div>}
+                      {role !== 'collaborator' && activity.privateFeedback && activity.privateFeedback.length > 0 && <div className="task-private-feedback"><strong>Feedback privado categorizado</strong>{activity.privateFeedback.map((feedback) => <p key={feedback.id}>{feedback.content}<small>{feedbackCategoryLabels[feedback.category] ?? feedbackCategoryLabels.general_ideas} · {feedback.authorName ? feedback.authorName + ' · ' : ''}{new Date(feedback.createdAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' })}</small></p>)}</div>}
                       {role === 'leader' && <div className="task-review">
+                        <label>Categoría del feedback<select value={taskFeedbackCategory[activity.id] ?? 'general_ideas'} onChange={(event) => setTaskFeedbackCategory((current) => ({ ...current, [activity.id]:event.target.value as FeedbackCategory }))}>{feedbackCategoryOptions.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select><small>Organiza el feedback para facilitar conversaciones y contrastes posteriores.</small></label>
                         <label>Feedback privado para la orientación de IA<textarea value={taskReviewFeedback[activity.id] ?? ''} maxLength={600} rows={3} onChange={(event) => setTaskReviewFeedback((current) => ({ ...current, [activity.id]:event.target.value }))} placeholder="Describe señales o aspectos que conviene contrastar. No incluyas datos sensibles." /><small>Solo es visible para Liderazgo y People. La IA lo usa como contexto interno y nunca lo citará.</small></label>
                         <div className="profile-form-actions"><button className="outline-button" type="button" onClick={() => void saveTaskFeedback(activity)} disabled={taskReviewBusy !== null}>{taskReviewBusy === activity.id ? 'Guardando…' : 'Guardar feedback privado'}</button>{activity.submittedForReview && activity.validationStatus === 'pending_review' && <><button className="approve-button" type="button" onClick={() => void reviewTask(activity, 'validate')} disabled={taskReviewBusy !== null}>Validar tarea</button><button className="outline-button" type="button" onClick={() => void reviewTask(activity, 'changes')} disabled={taskReviewBusy !== null}>Solicitar ajustes</button></>}</div>
                       </div>}

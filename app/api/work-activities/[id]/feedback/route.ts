@@ -1,7 +1,8 @@
 import { ensureDatabase, rawDb } from '@/db/runtime';
 import { apiError, getActor, requireRole } from '@/lib/authz';
+import { isFeedbackCategory } from '@/lib/feedback-categories';
 
-type FeedbackInput = { content?: unknown };
+type FeedbackInput = { category?: unknown; content?: unknown };
 
 function readText(value: unknown) { return typeof value === 'string' ? value.trim() : ''; }
 
@@ -14,7 +15,9 @@ export async function POST(request: Request, context: { params: Promise<{ id:str
     let body: FeedbackInput;
     try { body = await request.json() as FeedbackInput; }
     catch { return Response.json({ error:'La solicitud debe contener JSON válido.' }, { status:400 }); }
+    const category = readText(body.category);
     const content = readText(body.content);
+    if (!isFeedbackCategory(category)) return Response.json({ error:'Selecciona una categoría de feedback válida.' }, { status:400 });
     if (content.length < 10 || content.length > 600) return Response.json({ error:'El feedback privado debe tener entre 10 y 600 caracteres.' }, { status:400 });
 
     await ensureDatabase();
@@ -26,10 +29,10 @@ export async function POST(request: Request, context: { params: Promise<{ id:str
     const feedbackId = crypto.randomUUID();
     const timestamp = Date.now();
     await db.batch([
-      db.prepare(`INSERT INTO work_activity_feedback (id, work_activity_id, author_id, content, created_at) VALUES (?, ?, ?, ?, ?)`).bind(feedbackId, id, actor.id, content, timestamp),
+      db.prepare(`INSERT INTO work_activity_feedback (id, work_activity_id, author_id, category, content, created_at) VALUES (?, ?, ?, ?, ?, ?)`).bind(feedbackId, id, actor.id, category, content, timestamp),
       db.prepare(`DELETE FROM profile_analyses WHERE user_id = ?`).bind(activity.userId),
-      db.prepare(`INSERT INTO audit_log (id, actor_id, target_user_id, action, entity_type, entity_id, after_json, created_at) VALUES (?, ?, ?, 'create_private_feedback', 'work_activity_feedback', ?, ?, ?)`).bind(crypto.randomUUID(), actor.id, activity.userId, feedbackId, JSON.stringify({ workActivityId:id, contentLength:content.length }), timestamp),
+      db.prepare(`INSERT INTO audit_log (id, actor_id, target_user_id, action, entity_type, entity_id, after_json, created_at) VALUES (?, ?, ?, 'create_private_feedback', 'work_activity_feedback', ?, ?, ?)`).bind(crypto.randomUUID(), actor.id, activity.userId, feedbackId, JSON.stringify({ workActivityId:id, category, contentLength:content.length }), timestamp),
     ]);
-    return Response.json({ id:feedbackId, workActivityId:id, createdAt:timestamp, authorName:actor.fullName }, { status:201 });
+    return Response.json({ id:feedbackId, workActivityId:id, category, createdAt:timestamp, authorName:actor.fullName }, { status:201 });
   } catch (error) { return apiError(error); }
 }

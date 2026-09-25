@@ -40,7 +40,7 @@ export const workActivities = sqliteTable('work_activities', {
 
 /** Feedback privado del líder sobre una tarea. Nunca se entrega a la persona colaboradora. */
 export const workActivityFeedback = sqliteTable('work_activity_feedback', {
-  id: text('id').primaryKey(), workActivityId: text('work_activity_id').notNull(), authorId: text('author_id').notNull(), content: text('content').notNull(), createdAt: integer('created_at').notNull(),
+  id: text('id').primaryKey(), workActivityId: text('work_activity_id').notNull(), authorId: text('author_id').notNull(), category: text('category').notNull().default('general_ideas'), content: text('content').notNull(), createdAt: integer('created_at').notNull(),
 }, (table) => [index('idx_work_activity_feedback_activity_created').on(table.workActivityId, table.createdAt)]);
 
 export const actionItems = sqliteTable('action_items', {
