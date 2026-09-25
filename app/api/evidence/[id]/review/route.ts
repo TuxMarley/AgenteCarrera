@@ -22,10 +22,13 @@ export async function POST(request: Request, context: { params: Promise<{ id:str
 
     await ensureDatabase();
     const db = rawDb();
-    const evidence = await db.prepare(`SELECT evidence.id, evidence.user_id AS userId, evidence.validation_status AS validationStatus, evidence.leader_feedback AS leaderFeedback, user.manager_id AS managerId FROM evidence JOIN users user ON user.id = evidence.user_id WHERE evidence.id = ?`).bind(id).first<{ id:string; userId:string; validationStatus:string; leaderFeedback:string|null; managerId:string|null }>();
+    const evidence = await db.prepare(`SELECT evidence.id, evidence.user_id AS userId, evidence.validation_status AS validationStatus, evidence.leader_feedback AS leaderFeedback, evidence.object_key AS objectKey, evidence.work_activity_id AS workActivityId, user.manager_id AS managerId FROM evidence JOIN users user ON user.id = evidence.user_id WHERE evidence.id = ?`).bind(id).first<{ id:string; userId:string; validationStatus:string; leaderFeedback:string|null; objectKey:string|null; workActivityId:string|null; managerId:string|null }>();
     if (!evidence) return Response.json({ error:'Evidencia no encontrada.' }, { status:404 });
     if (evidence.managerId !== actor.id) return Response.json({ error:'Solo puedes revisar evidencias de personas asignadas a tu equipo.' }, { status:403 });
     if (evidence.validationStatus !== 'pending') return Response.json({ error:'Esta evidencia no está pendiente de revisión.' }, { status:409 });
+    if (!evidence.objectKey || !evidence.workActivityId) return Response.json({ error:'Solo se pueden validar evidencias adjuntas a una tarea de trabajo.' }, { status:409 });
+    const activity = await db.prepare(`SELECT submitted_for_review AS submittedForReview FROM work_activities WHERE id = ? AND user_id = ?`).bind(evidence.workActivityId, evidence.userId).first<{ submittedForReview:boolean|number }>();
+    if (!activity?.submittedForReview) return Response.json({ error:'La tarea debe enviarse a validación antes de revisar su evidencia.' }, { status:409 });
 
     const validationStatus = decision === 'validate' ? 'validated' : 'rejected';
     const timestamp = Date.now();

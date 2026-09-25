@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     const actor = await getActor(request);
     requireRole(actor, ['collaborator']);
     await ensureDatabase();
-    const result = await rawDb().prepare(`SELECT id, title, description, status, validation_status AS validationStatus, started_at AS startedAt, completed_at AS completedAt, created_at AS createdAt, updated_at AS updatedAt FROM work_activities WHERE user_id = ? ORDER BY updated_at DESC`).bind(actor.id).all();
+    const result = await rawDb().prepare(`SELECT id, title, description, status, validation_status AS validationStatus, submitted_for_review AS submittedForReview, started_at AS startedAt, completed_at AS completedAt, created_at AS createdAt, updated_at AS updatedAt FROM work_activities WHERE user_id = ? ORDER BY updated_at DESC`).bind(actor.id).all();
     return Response.json({ workActivities: result.results });
   } catch (error) { return apiError(error); }
 }
@@ -33,10 +33,10 @@ export async function POST(request: Request) {
     await ensureDatabase();
     const timestamp = Date.now();
     const id = crypto.randomUUID();
-    const activity = { id, title, description, status, validationStatus:'pending_review', startedAt:timestamp, completedAt:status === 'completed' ? timestamp : null, createdAt:timestamp, updatedAt:timestamp };
+    const activity = { id, title, description, status, validationStatus:'pending_review', submittedForReview:false, startedAt:timestamp, completedAt:status === 'completed' ? timestamp : null, createdAt:timestamp, updatedAt:timestamp };
     const db = rawDb();
     await db.batch([
-      db.prepare(`INSERT INTO work_activities (id, user_id, title, description, status, validation_status, started_at, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?)`).bind(id, actor.id, title, description, status, timestamp, activity.completedAt, timestamp, timestamp),
+      db.prepare(`INSERT INTO work_activities (id, user_id, title, description, status, validation_status, submitted_for_review, started_at, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending_review', 0, ?, ?, ?, ?)`).bind(id, actor.id, title, description, status, timestamp, activity.completedAt, timestamp, timestamp),
       db.prepare(`DELETE FROM profile_analyses WHERE user_id = ?`).bind(actor.id),
       db.prepare(`INSERT INTO audit_log (id, actor_id, target_user_id, action, entity_type, entity_id, after_json, created_at) VALUES (?, ?, ?, 'create', 'work_activity', ?, ?, ?)`).bind(crypto.randomUUID(), actor.id, actor.id, id, JSON.stringify(activity), timestamp),
     ]);

@@ -19,10 +19,13 @@ export async function POST(request: Request, context: { params: Promise<{ id:str
 
     await ensureDatabase();
     const db = rawDb();
-    const activity = await db.prepare(`SELECT activity.id, activity.user_id AS userId, activity.validation_status AS validationStatus, user.manager_id AS managerId FROM work_activities activity JOIN users user ON user.id = activity.user_id WHERE activity.id = ?`).bind(id).first<{ id:string; userId:string; validationStatus:string; managerId:string|null }>();
+    const activity = await db.prepare(`SELECT activity.id, activity.user_id AS userId, activity.validation_status AS validationStatus, activity.submitted_for_review AS submittedForReview, user.manager_id AS managerId FROM work_activities activity JOIN users user ON user.id = activity.user_id WHERE activity.id = ?`).bind(id).first<{ id:string; userId:string; validationStatus:string; submittedForReview:number; managerId:string|null }>();
     if (!activity) return Response.json({ error:'Tarea no encontrada.' }, { status:404 });
     if (activity.managerId !== actor.id) return Response.json({ error:'Solo puedes revisar tareas de personas asignadas a tu equipo.' }, { status:403 });
+    if (!activity.submittedForReview) return Response.json({ error:'La persona debe enviar la tarea a revisión después de adjuntar una evidencia.' }, { status:409 });
     if (activity.validationStatus !== 'pending_review') return Response.json({ error:'Esta tarea no está pendiente de revisión.' }, { status:409 });
+    const tangibleEvidence = await db.prepare(`SELECT COUNT(*) AS count FROM evidence WHERE work_activity_id = ? AND user_id = ? AND object_key IS NOT NULL`).bind(id, activity.userId).first<{ count:number|string }>();
+    if (Number(tangibleEvidence?.count ?? 0) < 1) return Response.json({ error:'Esta tarea no tiene una evidencia con archivo adjunto para revisar.' }, { status:409 });
 
     const validationStatus = decision === 'validate' ? 'validated' : 'changes_requested';
     const timestamp = Date.now();

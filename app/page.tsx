@@ -37,7 +37,8 @@ type Profile = {
 };
 type WorkActivity = {
   id:string; title:string; description:string; status:'in_progress'|'completed'; completedAt:number|null;
-  validationStatus:'pending_review'|'validated'|'changes_requested'; reviewedAt?:number|null; reviewedByName?:string|null;
+  validationStatus:'pending_review'|'validated'|'changes_requested'; submittedForReview:boolean|number; reviewedAt?:number|null; reviewedByName?:string|null;
+  evidence:Evidence[];
   privateFeedback?:Array<{ id:string; content:string; createdAt:number; authorName:string|null }>;
 };
 type ProfileAnalysis = {
@@ -54,7 +55,7 @@ type ProfileAnalysis = {
   nextRole:string|null;
   updatedAt:number;
 };
-type Evidence = { id:string; title:string; description:string; evidenceType:string; occurredAt:number; validationStatus:'draft'|'pending'|'validated'|'rejected'; originalFilename:string|null; contentType:string|null; sizeBytes:number|null; leaderFeedback:string|null; reviewedAt:number|null; reviewedByName:string|null };
+type Evidence = { id:string; title:string; description:string; evidenceType:string; occurredAt:number; validationStatus:'draft'|'pending'|'validated'|'rejected'; workActivityId:string|null; originalFilename:string|null; contentType:string|null; sizeBytes:number|null; leaderFeedback:string|null; reviewedAt:number|null; reviewedByName:string|null };
 type Dashboard = {
   profile:Profile|null;
   evidence:Evidence[];
@@ -71,6 +72,11 @@ const maturityMessages = {
 const confidenceLabels = { low:'baja', medium:'media', high:'alta' } as const;
 const evidenceStatusLabels = { draft:'Borrador', pending:'Pendiente de revisión', validated:'Validada', rejected:'No validada' } as const;
 const taskValidationLabels = { pending_review:'Pendiente de revisión', validated:'Validada por líder', changes_requested:'Requiere ajustes' } as const;
+
+function taskValidationLabel(activity: WorkActivity) {
+  if (!activity.submittedForReview && activity.validationStatus === 'pending_review') return 'En preparación';
+  return taskValidationLabels[activity.validationStatus];
+}
 
 function qualitativeMaturityLanguage(text: string) {
   return text
@@ -94,6 +100,8 @@ export default function Home() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [dashboardError, setDashboardError] = useState('');
   const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [evidenceTask, setEvidenceTask] = useState<Pick<WorkActivity, 'id'|'title'>|null>(null);
+  const [evidenceEditing, setEvidenceEditing] = useState<Evidence|null>(null);
   const [evidenceSaved, setEvidenceSaved] = useState(false);
   const [evidenceError, setEvidenceError] = useState('');
   const [evidenceReviewFeedback, setEvidenceReviewFeedback] = useState<Record<string,string>>({});
@@ -113,6 +121,11 @@ export default function Home() {
   const [taskForm, setTaskForm] = useState({ title:'', description:'' });
   const [taskBusy, setTaskBusy] = useState(false);
   const [taskError, setTaskError] = useState('');
+  const [taskNotice, setTaskNotice] = useState('');
+  const [taskEditingId, setTaskEditingId] = useState<string|null>(null);
+  const [taskEditForm, setTaskEditForm] = useState({ title:'', description:'' });
+  const [taskEditBusy, setTaskEditBusy] = useState(false);
+  const [taskSubmitBusy, setTaskSubmitBusy] = useState<string|null>(null);
   const [taskReviewFeedback, setTaskReviewFeedback] = useState<Record<string,string>>({});
   const [taskReviewBusy, setTaskReviewBusy] = useState<string|null>(null);
   const [taskReviewNotice, setTaskReviewNotice] = useState('');
@@ -206,17 +219,18 @@ export default function Home() {
   const nextCareerRole = currentCareerSelection ? getNextRole(currentCareerSelection.role.id)?.role : undefined;
   const nextAction = useMemo(() => {
     const workActivities = dashboard?.workActivities ?? [];
-    const evidence = dashboard?.evidence ?? [];
     if (role === 'leader') {
       if (profile?.validationStatus === 'pending_review') return { title:'Revisa el perfil de desarrollo', description:'La persona envió información que requiere tu contraste y validación.', target:'#perfil-inicial', label:'Revisar perfil' };
-      if (evidence.some((item) => item.validationStatus === 'pending')) return { title:'Revisa una evidencia pendiente', description:'Confirma si puede usarse como antecedente para la conversación de desarrollo.', target:'#evidencias', label:'Revisar evidencias' };
-      if (workActivities.some((item) => item.validationStatus === 'pending_review')) return { title:'Revisa una tarea pendiente', description:'Valida la información declarada o registra feedback privado para orientar el análisis.', target:'#tareas', label:'Revisar tareas' };
+      if (workActivities.some((item) => item.submittedForReview && item.validationStatus === 'pending_review')) return { title:'Revisa una tarea con evidencia', description:'La persona adjuntó antecedentes concretos y la envió a tu validación.', target:'#tareas', label:'Revisar tareas' };
       return { title:'Consulta la última orientación', description:'No hay revisiones operativas pendientes para esta persona.', target:'#historial', label:'Ver historial' };
     }
     if (role === 'admin') return { title:'Revisa la trazabilidad del perfil', description:'People acompaña el gobierno del modelo; las validaciones operativas corresponden al líder.', target:'#historial', label:'Ver historial' };
     if (!profile?.profileCompleted) return { title:'Completa tu perfil de desarrollo', description:'Describe tu rol y contexto para iniciar una conversación informada.', target:'#perfil-inicial', label:'Completar perfil' };
     if (profile.validationStatus === 'changes_requested') return { title:'Actualiza tu perfil de desarrollo', description:'Tu líder solicitó ajustes antes de continuar con la orientación.', target:'#perfil-inicial', label:'Actualizar perfil' };
-    if (workActivities.length === 0 && evidence.length === 0) return { title:'Registra una tarea o evidencia', description:'Agrega un ejemplo de tu trabajo para dar contexto a la conversación.', target:'#tareas', label:'Registrar tarea' };
+    if (workActivities.length === 0) return { title:'Registra una tarea de trabajo', description:'Comienza con una tarea para registrar avances y evidencias concretas.', target:'#tareas', label:'Registrar tarea' };
+    if (workActivities.some((item) => item.validationStatus === 'changes_requested')) return { title:'Actualiza una tarea que requiere ajustes', description:'Incorpora el feedback, adjunta un nuevo antecedente si corresponde y vuelve a enviarla.', target:'#tareas', label:'Actualizar tarea' };
+    if (workActivities.some((item) => !item.evidence.some((evidence) => evidence.originalFilename))) return { title:'Adjunta evidencia a una tarea', description:'Cada tarea necesita al menos un archivo concreto antes de poder enviarse a validación.', target:'#tareas', label:'Adjuntar evidencia' };
+    if (workActivities.some((item) => !item.submittedForReview)) return { title:'Envía una tarea a validación', description:'La tarea ya tiene evidencia; envíala a tu líder para que pueda revisarla.', target:'#tareas', label:'Enviar tarea' };
     if (!orientation) return { title:'Solicita tu orientación asistida por IA', description:'Con tu perfil y ejemplos registrados, prepara un borrador para conversar con tu líder.', target:'#orientacion', label:'Ver orientación' };
     return { title:'Mantén actualizada tu información', description:'Registra avances y resultados relevantes para enriquecer la próxima conversación.', target:'#tareas', label:'Actualizar tareas' };
   }, [dashboard, orientation, profile, role]);
@@ -330,6 +344,7 @@ export default function Home() {
         return;
       }
       setTaskForm({ title:'', description:'' });
+      setTaskNotice('Tarea creada. Agrega avances y adjunta una evidencia antes de enviarla a validación.');
       await refreshDashboard();
     } catch {
       setTaskError('No fue posible conectar para registrar la tarea.');
@@ -340,6 +355,7 @@ export default function Home() {
 
   async function updateTaskStatus(activity: WorkActivity) {
     setTaskError('');
+    setTaskNotice('');
     const nextStatus = activity.status === 'completed' ? 'in_progress' : 'completed';
     try {
       const response = await fetch('/api/work-activities/' + activity.id, {
@@ -352,10 +368,51 @@ export default function Home() {
         setTaskError(data.error ?? 'No fue posible actualizar la tarea.');
         return;
       }
+      setTaskNotice('El estado de la tarea se actualizó. Revisa la evidencia antes de enviarla nuevamente.');
       await refreshDashboard();
     } catch {
       setTaskError('No fue posible conectar para actualizar la tarea.');
     }
+  }
+
+  function openTaskEditor(activity: WorkActivity) {
+    setTaskEditingId(activity.id);
+    setTaskEditForm({ title:activity.title, description:activity.description });
+    setTaskError('');
+    setTaskNotice('');
+  }
+
+  async function submitTaskEdit(event: FormEvent<HTMLFormElement>, activity: WorkActivity) {
+    event.preventDefault();
+    setTaskEditBusy(true);
+    setTaskError('');
+    setTaskNotice('');
+    try {
+      const response = await fetch('/api/work-activities/' + activity.id, {
+        method:'PATCH', headers:{ ...demoHeaders, 'Content-Type':'application/json' }, body:JSON.stringify(taskEditForm),
+      });
+      const data = await response.json() as { error?:string };
+      if (!response.ok) { setTaskError(data.error ?? 'No fue posible actualizar la tarea.'); return; }
+      setTaskEditingId(null);
+      setTaskNotice('Tarea actualizada. Revisa o adjunta evidencia antes de enviarla a validación.');
+      await refreshDashboard();
+    } catch { setTaskError('No fue posible conectar para actualizar la tarea.'); }
+    finally { setTaskEditBusy(false); }
+  }
+
+  async function submitTaskForReview(activity: WorkActivity) {
+    if (taskSubmitBusy) return;
+    setTaskSubmitBusy(activity.id);
+    setTaskError('');
+    setTaskNotice('');
+    try {
+      const response = await fetch('/api/work-activities/' + activity.id + '/submit', { method:'POST', headers:demoHeaders });
+      const data = await response.json() as { error?:string };
+      if (!response.ok) { setTaskError(data.error ?? 'No fue posible enviar la tarea a validación.'); return; }
+      setTaskNotice('Tarea enviada a validación junto con sus evidencias adjuntas.');
+      await refreshDashboard();
+    } catch { setTaskError('No fue posible conectar para enviar la tarea a validación.'); }
+    finally { setTaskSubmitBusy(null); }
   }
 
   async function reviewTask(activity: WorkActivity, decision:'validate'|'changes') {
@@ -410,20 +467,43 @@ export default function Home() {
     }
   }
 
+  function openEvidenceModal(activity: WorkActivity, evidence?: Evidence) {
+    setEvidenceTask({ id:activity.id, title:activity.title });
+    setEvidenceEditing(evidence ?? null);
+    setEvidenceError('');
+    setEvidenceSaved(false);
+    setEvidenceOpen(true);
+  }
+
+  function closeEvidenceModal() {
+    setEvidenceOpen(false);
+    setEvidenceTask(null);
+    setEvidenceEditing(null);
+    setEvidenceError('');
+    setEvidenceSaved(false);
+  }
+
   async function submitEvidence(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!evidenceTask) return;
     setEvidenceError('');
-    const response = await fetch('/api/evidence', { method:'POST', headers:demoHeaders, body:new FormData(event.currentTarget) });
+    const form = new FormData(event.currentTarget);
+    let response: Response;
+    if (evidenceEditing) {
+      response = await fetch('/api/evidence/' + evidenceEditing.id, { method:'PATCH', headers:{ ...demoHeaders, 'Content-Type':'application/json' }, body:JSON.stringify({ title:String(form.get('title') ?? ''), description:String(form.get('description') ?? ''), evidenceType:String(form.get('evidenceType') ?? '') }) });
+    } else {
+      form.set('workActivityId', evidenceTask.id);
+      response = await fetch('/api/evidence', { method:'POST', headers:demoHeaders, body:form });
+    }
     if (!response.ok) {
       const data = await response.json().catch(() => ({})) as { error?:string };
-      setEvidenceError(data.error ?? 'No fue posible registrar la evidencia.');
+      setEvidenceError(data.error ?? 'No fue posible guardar el avance.');
       return;
     }
     setEvidenceSaved(true);
     await refreshDashboard();
     window.setTimeout(() => {
-      setEvidenceOpen(false);
-      setEvidenceSaved(false);
+      closeEvidenceModal();
     }, 900);
   }
 
@@ -634,12 +714,12 @@ export default function Home() {
             </section>
 
             <section className="panel tasks-panel" id="tareas">
-              <div className="panel-heading"><div><h2>{role === 'collaborator' ? 'Mis tareas de trabajo' : 'Tareas de trabajo de ' + firstName}</h2><p className="panel-subtitle">{role === 'collaborator' ? 'Registra lo que estás realizando o ya completaste. Cada actualización queda pendiente de revisión.' : role === 'leader' ? 'Valida tareas declaradas y registra feedback privado para enriquecer el próximo análisis.' : 'Consulta las tareas, sus estados de revisión y su trazabilidad.'}</p></div><span className="count-badge neutral">{dashboard?.workActivities?.length ?? 0}</span></div>
+              <div className="panel-heading"><div><h2>{role === 'collaborator' ? 'Mis tareas de trabajo' : 'Tareas de trabajo de ' + firstName}</h2><p className="panel-subtitle">{role === 'collaborator' ? 'Registra avances, actualiza el contexto y adjunta evidencias concretas desde cada tarea.' : role === 'leader' ? 'Revisa tareas que ya fueron enviadas junto con sus evidencias adjuntas.' : 'Consulta las tareas, sus evidencias, estados de revisión y trazabilidad.'}</p></div><span className="count-badge neutral">{dashboard?.workActivities?.length ?? 0}</span></div>
               {role === 'collaborator' && (
                 <form className="task-form" onSubmit={submitTask}>
                   <label>Tarea<input required minLength={3} maxLength={160} value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title:event.target.value }))} placeholder="Ej.: Preparar una revisión técnica" /></label>
                   <label>Contexto, aporte y resultado esperado<textarea required minLength={10} maxLength={1600} rows={3} value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description:event.target.value }))} placeholder="Describe qué estás haciendo y qué resultado esperas lograr." /></label>
-                  <button className="outline-button" type="submit" disabled={taskBusy || !profile?.profileCompleted}>{taskBusy ? 'Registrando…' : 'Agregar tarea en curso'}</button>
+                  <button className="outline-button" type="submit" disabled={taskBusy || !profile?.profileCompleted}>{taskBusy ? 'Registrando…' : 'Crear tarea'}</button>
                 </form>
               )}
               {!profile?.profileCompleted && role === 'collaborator' && <p className="helper-text">Primero guarda tu perfil de desarrollo para registrar tareas.</p>}
@@ -647,35 +727,36 @@ export default function Home() {
                 {(dashboard?.workActivities ?? []).map((activity) => (
                   <article className="task-item" key={activity.id}>
                     <button className={'task-toggle ' + activity.status} onClick={() => void updateTaskStatus(activity)} disabled={role !== 'collaborator'} aria-label={activity.status === 'completed' ? 'Marcar tarea como en curso' : 'Marcar tarea como completada'}>{activity.status === 'completed' && <Check aria-hidden="true" />}</button>
-                    <div className="task-copy"><strong>{activity.title}</strong><p>{activity.description}</p><small>{activity.status === 'completed' ? 'Completada' : 'En curso'} · declaración de la persona · <span className={'task-validation status-' + activity.validationStatus}>{taskValidationLabels[activity.validationStatus]}</span>{activity.reviewedByName ? ' · ' + activity.reviewedByName : ''}</small>
+                    <div className="task-copy"><strong>{activity.title}</strong><p>{activity.description}</p><small>{activity.status === 'completed' ? 'Completada' : 'En curso'} · declaración de la persona · <span className={'task-validation status-' + activity.validationStatus}>{taskValidationLabel(activity)}</span>{activity.reviewedByName ? ' · ' + activity.reviewedByName : ''}</small>
+                      {role === 'collaborator' && taskEditingId === activity.id ? <form className="task-edit-form" onSubmit={(event) => void submitTaskEdit(event, activity)}><label>Tarea<input required minLength={3} maxLength={160} value={taskEditForm.title} onChange={(event) => setTaskEditForm((current) => ({ ...current, title:event.target.value }))} /></label><label>Contexto, aporte y resultado esperado<textarea required minLength={10} maxLength={1600} rows={3} value={taskEditForm.description} onChange={(event) => setTaskEditForm((current) => ({ ...current, description:event.target.value }))} /></label><div className="task-inline-actions"><button className="approve-button" type="submit" disabled={taskEditBusy}>{taskEditBusy ? 'Guardando…' : 'Guardar cambios'}</button><button className="outline-button" type="button" onClick={() => setTaskEditingId(null)} disabled={taskEditBusy}>Cancelar</button></div></form> : role === 'collaborator' && <div className="task-inline-actions"><button className="outline-button" type="button" onClick={() => openTaskEditor(activity)}>Editar tarea</button><button className="outline-button" type="button" onClick={() => openEvidenceModal(activity)}>Registrar avance y adjuntar evidencia</button>{!activity.submittedForReview && <button className="approve-button" type="button" onClick={() => void submitTaskForReview(activity)} disabled={taskSubmitBusy !== null}>{taskSubmitBusy === activity.id ? 'Enviando…' : 'Enviar a validación'}</button>}</div>}
+                      <div className="task-evidence"><div className="task-evidence-heading"><strong>Avances y evidencias</strong><span>{activity.evidence.length} {activity.evidence.length === 1 ? 'registro' : 'registros'}</span></div>{activity.evidence.length > 0 ? <div className="task-evidence-list">{activity.evidence.map((evidence) => <article className="task-evidence-item" key={evidence.id}><div><span className="evidence-type">{evidenceTypeLabels[evidence.evidenceType] ?? evidence.evidenceType}</span><strong>{evidence.title}</strong><small>{evidenceStatusLabels[evidence.validationStatus]} · {new Date(evidence.occurredAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' })}</small></div><div className="task-evidence-actions">{evidence.originalFilename ? <button type="button" onClick={() => void downloadEvidenceFile(evidence)} disabled={evidenceFileBusy === evidence.id}>{evidenceFileBusy === evidence.id ? 'Preparando…' : 'Ver archivo adjunto'}</button> : <small>Sin archivo adjunto</small>}{role === 'collaborator' && <button type="button" onClick={() => openEvidenceModal(activity, evidence)}>Editar avance</button>}</div>{evidence.description && <p>{evidence.description}</p>}{evidence.leaderFeedback && <div className="evidence-feedback"><strong>Feedback de revisión{evidence.reviewedByName ? ' · ' + evidence.reviewedByName : ''}</strong><p>{evidence.leaderFeedback}</p></div>}{role === 'leader' && activity.submittedForReview && evidence.validationStatus === 'pending' && <div className="evidence-review"><label>Feedback para la persona (obligatorio si no validas)<textarea value={evidenceReviewFeedback[evidence.id] ?? ''} maxLength={1200} rows={3} onChange={(event) => setEvidenceReviewFeedback((current) => ({ ...current, [evidence.id]:event.target.value }))} placeholder="Explica qué se confirmó o qué falta para poder validar." /></label><div className="profile-form-actions"><button className="primary-button" type="button" onClick={() => void reviewEvidence(evidence, 'validate')} disabled={evidenceReviewBusy !== null}>{evidenceReviewBusy === evidence.id ? 'Registrando…' : 'Validar evidencia'}</button><button className="evidence-reject-button" type="button" onClick={() => void reviewEvidence(evidence, 'reject')} disabled={evidenceReviewBusy !== null}>No validar</button></div></div>}</article>)}</div> : <p className="task-evidence-empty">Aún no hay avances adjuntos. Añade una evidencia con archivo para poder enviar esta tarea a validación.</p>}</div>
                       {role !== 'collaborator' && activity.privateFeedback && activity.privateFeedback.length > 0 && <div className="task-private-feedback"><strong>Feedback privado del líder</strong>{activity.privateFeedback.map((feedback) => <p key={feedback.id}>{feedback.content}<small>{feedback.authorName ? feedback.authorName + ' · ' : ''}{new Date(feedback.createdAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' })}</small></p>)}</div>}
                       {role === 'leader' && <div className="task-review">
                         <label>Feedback privado para la orientación de IA<textarea value={taskReviewFeedback[activity.id] ?? ''} maxLength={600} rows={3} onChange={(event) => setTaskReviewFeedback((current) => ({ ...current, [activity.id]:event.target.value }))} placeholder="Describe señales o aspectos que conviene contrastar. No incluyas datos sensibles." /><small>Solo es visible para Liderazgo y People. La IA lo usa como contexto interno y nunca lo citará.</small></label>
-                        <div className="profile-form-actions"><button className="outline-button" type="button" onClick={() => void saveTaskFeedback(activity)} disabled={taskReviewBusy !== null}>{taskReviewBusy === activity.id ? 'Guardando…' : 'Guardar feedback privado'}</button>{activity.validationStatus === 'pending_review' && <><button className="approve-button" type="button" onClick={() => void reviewTask(activity, 'validate')} disabled={taskReviewBusy !== null}>Validar tarea</button><button className="outline-button" type="button" onClick={() => void reviewTask(activity, 'changes')} disabled={taskReviewBusy !== null}>Solicitar ajustes</button></>}</div>
+                        <div className="profile-form-actions"><button className="outline-button" type="button" onClick={() => void saveTaskFeedback(activity)} disabled={taskReviewBusy !== null}>{taskReviewBusy === activity.id ? 'Guardando…' : 'Guardar feedback privado'}</button>{activity.submittedForReview && activity.validationStatus === 'pending_review' && <><button className="approve-button" type="button" onClick={() => void reviewTask(activity, 'validate')} disabled={taskReviewBusy !== null}>Validar tarea</button><button className="outline-button" type="button" onClick={() => void reviewTask(activity, 'changes')} disabled={taskReviewBusy !== null}>Solicitar ajustes</button></>}</div>
                       </div>}
                     </div>
                   </article>
                 ))}
-                {dashboard && dashboard.workActivities.length === 0 && <p className="empty-copy">Aún no registras tareas. Agrega una para empezar a construir ejemplos de tu trabajo.</p>}
+                {dashboard && dashboard.workActivities.length === 0 && <p className="empty-copy">Aún no registras tareas. Agrega una para empezar a documentar avances y evidencias de tu trabajo.</p>}
               </div>
               {taskError && <p className="form-error" role="alert">{taskError}</p>}
+              {taskNotice && <p className="form-success" role="status">{taskNotice}</p>}
               {taskReviewNotice && <p className={taskReviewNotice.startsWith('Tarea validada') || taskReviewNotice.startsWith('Se solicitaron') || taskReviewNotice.startsWith('Feedback privado') ? 'form-success' : 'form-error'} role="status">{taskReviewNotice}</p>}
             </section>
 
             <section className="panel evidence-panel" id="evidencias">
-              <div className="panel-heading compact"><div><h2>{role === 'collaborator' ? 'Evidencias' : 'Evidencias de ' + firstName}</h2><p className="evidence-intro">{role === 'collaborator' ? 'Documenta resultados, aprendizajes, certificaciones y feedback recibido.' : role === 'leader' ? 'Revisa evidencias declaradas, agrega feedback y valida o rechaza su uso como antecedente conversacional.' : 'Consulta las evidencias, sus estados de revisión y la trazabilidad disponible.'}</p></div><span className="count-badge">{dashboard?.evidence?.length ?? 0}</span></div>
-              {role === 'collaborator' && <button className="primary-button evidence-create-button" onClick={() => setEvidenceOpen(true)}>+ Registrar evidencia</button>}
+              <div className="panel-heading compact"><div><h2>{role === 'collaborator' ? 'Consulta de evidencias' : 'Consulta de evidencias de ' + firstName}</h2><p className="evidence-intro">Todas las evidencias se registran desde una tarea. Esta vista reúne los antecedentes y sus estados de revisión.</p></div><span className="count-badge">{dashboard?.evidence?.length ?? 0}</span></div>
               <div className="evidence-list">
                 {(dashboard?.evidence ?? []).map((evidence) => (
                   <article className="evidence-card" key={evidence.id}>
                     <div className="evidence-card-heading"><div><span className="evidence-type">{evidenceTypeLabels[evidence.evidenceType] ?? evidence.evidenceType}</span><h3>{evidence.title}</h3></div><span className={'evidence-status status-' + evidence.validationStatus}>{evidenceStatusLabels[evidence.validationStatus]}</span></div>
                     {evidence.description && <p>{evidence.description}</p>}
-                    <div className="evidence-meta"><span>{new Date(evidence.occurredAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' })}</span>{evidence.originalFilename && <button type="button" onClick={() => void downloadEvidenceFile(evidence)} disabled={evidenceFileBusy === evidence.id}>{evidenceFileBusy === evidence.id ? 'Preparando archivo…' : 'Descargar archivo privado · ' + evidence.originalFilename}</button>}</div>
+                    <div className="evidence-meta"><span>{new Date(evidence.occurredAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' })}</span><span>{evidence.workActivityId ? 'Asociada a una tarea' : 'Registro histórico sin tarea asociada'}</span>{evidence.originalFilename && <button type="button" onClick={() => void downloadEvidenceFile(evidence)} disabled={evidenceFileBusy === evidence.id}>{evidenceFileBusy === evidence.id ? 'Preparando archivo…' : 'Descargar archivo privado · ' + evidence.originalFilename}</button>}</div>
                     {evidence.leaderFeedback && <div className="evidence-feedback"><strong>Feedback de revisión{evidence.reviewedByName ? ' · ' + evidence.reviewedByName : ''}</strong><p>{evidence.leaderFeedback}</p></div>}
-                    {role === 'leader' && evidence.validationStatus === 'pending' && <div className="evidence-review"><label>Feedback para la persona (obligatorio si no validas)<textarea value={evidenceReviewFeedback[evidence.id] ?? ''} maxLength={1200} rows={3} onChange={(event) => setEvidenceReviewFeedback((current) => ({ ...current, [evidence.id]:event.target.value }))} placeholder="Explica qué se confirmó o qué falta para poder validar." /></label><div className="profile-form-actions"><button className="primary-button" type="button" onClick={() => void reviewEvidence(evidence, 'validate')} disabled={evidenceReviewBusy !== null}>{evidenceReviewBusy === evidence.id ? 'Registrando…' : 'Validar evidencia'}</button><button className="evidence-reject-button" type="button" onClick={() => void reviewEvidence(evidence, 'reject')} disabled={evidenceReviewBusy !== null}>No validar</button></div></div>}
                   </article>
                 ))}
-                {dashboard && dashboard.evidence.length === 0 && <p className="evidence-empty">{role === 'collaborator' ? 'Aún no registras evidencias. Agrega un hito, aprendizaje o certificación para enriquecer la conversación de desarrollo.' : 'La persona aún no ha registrado evidencias para revisar.'}</p>}
+                {dashboard && dashboard.evidence.length === 0 && <p className="evidence-empty">Aún no hay evidencias registradas desde las tareas.</p>}
               </div>
               {evidenceReviewNotice && <p className={evidenceReviewNotice.startsWith('Evidencia validada') || evidenceReviewNotice.startsWith('La evidencia quedó') ? 'evidence-success' : 'evidence-error'} role="status">{evidenceReviewNotice}</p>}
             </section>
@@ -782,18 +863,18 @@ export default function Home() {
         </form>
       </aside>
 
-      {evidenceOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setEvidenceOpen(false)}>
+      {evidenceOpen && evidenceTask && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={closeEvidenceModal}>
           <section className="evidence-modal" role="dialog" aria-modal="true" aria-labelledby="evidence-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head"><h2 id="evidence-title">Registra un avance observable</h2><button onClick={() => setEvidenceOpen(false)} aria-label="Cerrar"><X aria-hidden="true" /></button></div>
-            <p>Describe hechos y resultados. Tu líder podrá revisarlos antes de asociarlos a un criterio.</p>
-            <form onSubmit={submitEvidence}>
-              <label>Título<input name="title" required minLength={3} maxLength={120} placeholder="Ej.: Lideré la revisión técnica del módulo" /></label>
-              <label>Tipo<select name="evidenceType"><option value="achievement">Hito o resultado</option><option value="certification">Certificación</option><option value="feedback">Feedback</option><option value="learning">Aprendizaje</option></select></label>
-              <label>Descripción<textarea name="description" maxLength={1200} rows={4} placeholder="Contexto, acción y resultado observable" /></label>
-              <label>Archivo opcional<input name="file" type="file" accept=".pdf,.png,.jpg,.jpeg" /><small>PDF, PNG o JPG · máximo 10 MB</small></label>
+            <div className="modal-head"><h2 id="evidence-title">{evidenceEditing ? 'Edita un avance observable' : 'Registra un avance observable'}</h2><button onClick={closeEvidenceModal} aria-label="Cerrar"><X aria-hidden="true" /></button></div>
+            <p>{evidenceEditing ? <>Corrige el detalle de <strong>{evidenceEditing.title}</strong>. La tarea volverá a preparación para que puedas reenviarla cuando corresponda.</> : <>Adjunta un antecedente concreto a <strong>{evidenceTask.title}</strong>. La tarea se podrá enviar a validación solo cuando tenga un archivo adjunto.</>}</p>
+            <form key={evidenceEditing?.id ?? evidenceTask.id} onSubmit={submitEvidence}>
+              <label>Título<input name="title" defaultValue={evidenceEditing?.title} required minLength={3} maxLength={120} placeholder="Ej.: Lideré la revisión técnica del módulo" /></label>
+              <label>Tipo<select name="evidenceType" defaultValue={evidenceEditing?.evidenceType ?? 'achievement'}><option value="achievement">Hito o resultado</option><option value="certification">Certificación</option><option value="feedback">Feedback</option><option value="learning">Aprendizaje</option></select></label>
+              <label>Descripción<textarea name="description" defaultValue={evidenceEditing?.description} required minLength={10} maxLength={1200} rows={4} placeholder="Contexto, acción y resultado observable" /></label>
+              {!evidenceEditing && <label>Archivo adjunto<input name="file" required type="file" accept=".pdf,.png,.jpg,.jpeg" /><small>Obligatorio · PDF, PNG o JPG · máximo 10 MB</small></label>}
               {evidenceError && <p className="form-error" role="alert">{evidenceError}</p>}
-              <button className="modal-submit" type="submit">{evidenceSaved ? <><Check aria-hidden="true" /> Evidencia registrada</> : 'Enviar a revisión'}</button>
+              <button className="modal-submit" type="submit">{evidenceSaved ? <><Check aria-hidden="true" /> Avance guardado</> : evidenceEditing ? 'Guardar cambios del avance' : 'Guardar avance y evidencia'}</button>
             </form>
           </section>
         </div>

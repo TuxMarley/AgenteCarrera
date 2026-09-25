@@ -26,16 +26,16 @@ export const userCompetencies = sqliteTable('user_competencies', {
 
 export const evidence = sqliteTable('evidence', {
   id: text('id').primaryKey(), userId: text('user_id').notNull(), title: text('title').notNull(), description: text('description').notNull(), evidenceType: text('evidence_type').notNull(),
-  occurredAt: integer('occurred_at').notNull(), validationStatus: text('validation_status', { enum: ['draft', 'pending', 'validated', 'rejected'] }).notNull(), objectKey: text('object_key'),
+  occurredAt: integer('occurred_at').notNull(), validationStatus: text('validation_status', { enum: ['draft', 'pending', 'validated', 'rejected'] }).notNull(), workActivityId: text('work_activity_id'), objectKey: text('object_key'),
   originalFilename: text('original_filename'), contentType: text('content_type'), sizeBytes: integer('size_bytes'), leaderFeedback: text('leader_feedback'), reviewedBy: text('reviewed_by'), reviewedAt: integer('reviewed_at'), createdAt: integer('created_at').notNull(),
-}, (table) => [index('idx_evidence_user_created').on(table.userId, table.createdAt), index('idx_evidence_user_status').on(table.userId, table.validationStatus)]);
+}, (table) => [index('idx_evidence_user_created').on(table.userId, table.createdAt), index('idx_evidence_user_status').on(table.userId, table.validationStatus), index('idx_evidence_work_activity').on(table.workActivityId)]);
 
 /** Tareas de trabajo declaradas por la persona; son insumo de orientación, no una evaluación. */
 export const workActivities = sqliteTable('work_activities', {
   id: text('id').primaryKey(), userId: text('user_id').notNull(), title: text('title').notNull(), description: text('description').notNull(),
   status: text('status', { enum: ['in_progress', 'completed'] }).notNull(), startedAt: integer('started_at'), completedAt: integer('completed_at'),
   validationStatus: text('validation_status', { enum: ['pending_review', 'validated', 'changes_requested'] }).notNull().default('pending_review'),
-  reviewedBy: text('reviewed_by'), reviewedAt: integer('reviewed_at'), createdAt: integer('created_at').notNull(), updatedAt: integer('updated_at').notNull(),
+  submittedForReview: integer('submitted_for_review', { mode:'boolean' }).notNull().default(false), reviewedBy: text('reviewed_by'), reviewedAt: integer('reviewed_at'), createdAt: integer('created_at').notNull(), updatedAt: integer('updated_at').notNull(),
 }, (table) => [index('idx_work_activities_user_updated').on(table.userId, table.updatedAt), index('idx_work_activities_user_status').on(table.userId, table.status), index('idx_work_activities_user_validation').on(table.userId, table.validationStatus)]);
 
 /** Feedback privado del líder sobre una tarea. Nunca se entrega a la persona colaboradora. */
