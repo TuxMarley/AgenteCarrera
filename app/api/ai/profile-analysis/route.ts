@@ -23,13 +23,14 @@ Debes proponer un tramo orientativo Growth Mindset siguiendo estrictamente esta 
 - T2: muestra madurez y autonomía en el rol; organiza y resuelve su trabajo con criterio, perfecciona su rol y está aclarando qué camino o desafíos quiere recorrer.
 - T3: además de autonomía sostenida, ha elegido de forma explícita su camino o siguiente desafío y aporta evidencias de preparación para asumir retos alineados con él. No asignes T3 si esa claridad y preparación no están descritas.
 Si la información es insuficiente, selecciona el tramo provisional más cercano con confianza baja. Nunca interpretes la ausencia de evidencia como falta de capacidad.
-No evalúas el valor, desempeño o potencial de la persona ni tomas decisiones de promoción, categoría, compensación o elegibilidad. El tramo es una referencia conversacional, no una decisión laboral.
+No evalúas el valor, desempeño o potencial de la persona ni tomas decisiones de promoción, categoría, compensación o elegibilidad. La orientación es una referencia conversacional, no una decisión laboral.
+El campo técnico "maturityBand" se usa solo internamente. En todos los campos textuales dirigidos a personas, no escribas T1, T2 ni T3; usa en su lugar frases cualitativas completas sobre autonomía y preparación.
 El campo "rolActual" es el cargo en el que la empresa posicionó a la persona. El campo "siguienteRol" es la referencia del modelo para el siguiente escalón; úsala solo como orientación de desarrollo.
 Usa exclusivamente el contexto entregado. Relaciona tareas y evidencias solo con los criterios explicitamente incluidos; si no hay suficiente respaldo, dilo como información faltante. Las tareas y evidencias son declaraciones de la persona, no hechos validados. Una evidencia o tarea con estado de revisión "validated" fue revisada por una persona; las que estén pendientes, rechazadas o con ajustes solicitados no confirman un hecho ni deben usarse como prueba suficiente.
 No infieras atributos sensibles. Distingue hechos declarados de inferencias. Presenta toda conclusión como una sugerencia de orientación que puede no reflejar por completo el caso real. Debe contrastarse directamente con el líder y cualquier validación o cambio oficial requiere la aprobación de People. Responde en español claro y toda salida debe requerir validación humana.`;
 const privateReviewInstruction = `Si el contexto incluye "observacionPrivadaDeRevision" o "feedbackPrivadoLiderSobreTareas", úsalo únicamente como contexto interno para priorizar qué señales conviene contrastar. Nunca cites, parafrasees, menciones ni reveles la observación, el feedback ni su existencia en ningún campo de salida. No uses información privada por sí sola como evidencia de desempeño, potencial o una decisión laboral; si no coincide con información declarada, señala de forma neutral la información que falta por contrastar.`;
 
-const outputBrevity = 'Sé conciso: maturitySummary debe tener entre 35 y 65 palabras y explicar por qué el tramo se relaciona con las acciones descritas; workSummary hasta 90 palabras; hasta 3 elementos breves por lista y hasta 2 en missingInformation.';
+const outputBrevity = 'Sé conciso: maturitySummary debe tener entre 35 y 65 palabras, no debe incluir códigos como T1, T2 o T3 y debe explicar por qué la orientación se relaciona con las acciones descritas; workSummary hasta 90 palabras; hasta 3 elementos breves por lista y hasta 2 en missingInformation.';
 
 const responseSchema = {
   type: 'object', additionalProperties: false,
@@ -71,8 +72,8 @@ function localFallback(
     maturityBand,
     maturityConfidence: 'low',
     maturitySummary: maturityBand === 'T2'
-      ? `Según las acciones que describes, tu referencia actual es T2: hay señales de autonomía al ejecutar trabajo propio del rol de ${currentRole}. Falta contrastar con tu líder la consistencia de esa autonomía y la claridad del desafío que quieres asumir.`
-      : `Según las acciones disponibles, tu referencia actual es T1: estás construyendo autonomía en el rol de ${currentRole}. Esta lectura tiene confianza baja porque todavía faltan ejemplos de resultados y de decisiones que hayas gestionado con autonomía.`,
+      ? `Según las acciones que describes, muestras autonomía y madurez al ejecutar trabajo propio del rol de ${currentRole}. Falta contrastar con tu líder la consistencia de esa autonomía y la claridad del desafío que quieres asumir.`
+      : `Según las acciones disponibles, estás desarrollando autonomía en el rol de ${currentRole}. Esta lectura tiene confianza baja porque todavía faltan ejemplos de resultados y de decisiones que hayas gestionado con autonomía.`,
     workSummary: `Tu perfil registra ${taskCount} tarea${taskCount === 1 ? '' : 's'} y ${evidenceCount} evidencia${evidenceCount === 1 ? '' : 's'}. Estas declaraciones permiten conversar sobre tu aporte actual y preparar el desarrollo hacia ${nextLabel}, sin confirmar desempeño ni promoción.`,
     waysOfWorking: [
       'Aplicas conocimientos del rol en tareas concretas y haces visible el contexto de tu aporte.',
@@ -82,7 +83,7 @@ function localFallback(
     developmentGuidance: [
       `Explicita qué decisiones tomaste con autonomía y qué apoyo necesitaste en las tareas vinculadas a ${currentRole}.`,
       `Compara tus resultados con las necesidades del rol actual antes de usar ${nextLabel} como referencia.`,
-      'Solicita feedback sobre una situación concreta y contrasta este tramo con tu líder.',
+      'Solicita feedback sobre una situación concreta y contrasta esta orientación con tu líder.',
     ],
     missingInformation: [
       'Resultados observables y decisiones tomadas de manera autónoma.',

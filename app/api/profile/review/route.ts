@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     if (target.managerId !== actor.id) return Response.json({ error:'Solo puedes revisar perfiles de personas asignadas a tu equipo.' }, { status:403 });
 
     const profile = await db.prepare(`SELECT user_id AS userId, validation_status AS validationStatus, leader_feedback AS leaderFeedback, reviewer_private_observation AS reviewerPrivateObservation FROM career_profiles WHERE user_id = ?`).bind(targetUserId).first<{ userId:string; validationStatus:string; leaderFeedback:string|null; reviewerPrivateObservation:string|null }>();
-    if (!profile) return Response.json({ error:'La persona todavía no ha enviado su perfil inicial.' }, { status:404 });
+    if (!profile) return Response.json({ error:'La persona todavía no ha enviado su perfil de desarrollo.' }, { status:404 });
     if (profile.validationStatus !== 'pending_review') return Response.json({ error:'Este perfil no está pendiente de validación.' }, { status:409 });
 
     const validationStatus = decision === 'validate' ? 'validated' : 'changes_requested';

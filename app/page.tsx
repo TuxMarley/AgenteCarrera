@@ -63,14 +63,29 @@ type Dashboard = {
 };
 
 const isDevelopment = process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
-const maturityLabels = {
-  T1:'Adquiriendo autonomía',
-  T2:'Madurez y autonomía',
-  T3:'Preparación para el salto',
+const maturityMessages = {
+  T1:'Estás desarrollando autonomía en tu rol.',
+  T2:'Muestras autonomía y madurez en tu rol.',
+  T3:'Te estás preparando para tu próximo desafío.',
 } as const;
 const confidenceLabels = { low:'baja', medium:'media', high:'alta' } as const;
 const evidenceStatusLabels = { draft:'Borrador', pending:'Pendiente de revisión', validated:'Validada', rejected:'No validada' } as const;
 const taskValidationLabels = { pending_review:'Pendiente de revisión', validated:'Validada por líder', changes_requested:'Requiere ajustes' } as const;
+
+function qualitativeMaturityLanguage(text: string) {
+  return text
+    .replace(/Orientativamente,\s+el tramo\s+T1\s+parece el más cercano:/gi, 'Según la información disponible, estás desarrollando autonomía en tu rol:')
+    .replace(/Orientativamente,\s+el tramo\s+T2\s+parece el más cercano:/gi, 'Según la información disponible, muestras autonomía y madurez en tu rol:')
+    .replace(/Orientativamente,\s+el tramo\s+T3\s+parece el más cercano:/gi, 'Según la información disponible, te estás preparando para tu próximo desafío:')
+    .replace(/\bT1\b/g, 'desarrollo de autonomía')
+    .replace(/\bT2\b/g, 'autonomía y madurez en el rol')
+    .replace(/\bT3\b/g, 'preparación para un próximo desafío')
+    .replace(/\btramo de madurez orientativo\b/gi, 'orientación de desarrollo')
+    .replace(/\btramo orientativo\b/gi, 'orientación de desarrollo')
+    .replace(/\beste tramo\b/gi, 'esta orientación')
+    .replace(/\bel tramo\s+/gi, 'la orientación de ')
+    .replace(/\btramo\b/gi, 'orientación');
+}
 const evidenceTypeLabels:Record<string,string> = { achievement:'Hito o resultado', certification:'Certificación', feedback:'Feedback', learning:'Aprendizaje' };
 
 export default function Home() {
@@ -172,7 +187,8 @@ export default function Home() {
   const firstName = profile?.fullName?.split(' ')[0] ?? 'persona';
   const currentRole = profile?.currentJobRole ?? 'Perfil por completar';
   const initials = (profile?.fullName ?? 'EP').split(' ').map((part) => part.charAt(0)).join('').slice(0,2).toUpperCase();
-  const displayedBand = orientation?.maturityBand;
+  const maturityMessage = orientation ? maturityMessages[orientation.maturityBand] : 'Aún no hay una orientación sobre tu desarrollo.';
+  const displayedMaturitySummary = orientation ? qualitativeMaturityLanguage(orientation.maturitySummary) : null;
   const currentCareerSelection = getCareerRoleSelectionByLabel(profile?.currentJobRole);
   const profileValidationLabel = profile?.validationStatus === 'validated'
     ? 'Validado'
@@ -188,6 +204,22 @@ export default function Home() {
   const effectiveMapRoleId = mapRoleId || (mapTrack?.id === currentCareerSelection?.track.id ? currentCareerSelection?.role.id : mapTrack?.roles[0]?.id) || '';
   const exploredRole = mapTrack?.roles.find((item) => item.id === effectiveMapRoleId) ?? mapTrack?.roles[0];
   const nextCareerRole = currentCareerSelection ? getNextRole(currentCareerSelection.role.id)?.role : undefined;
+  const nextAction = useMemo(() => {
+    const workActivities = dashboard?.workActivities ?? [];
+    const evidence = dashboard?.evidence ?? [];
+    if (role === 'leader') {
+      if (profile?.validationStatus === 'pending_review') return { title:'Revisa el perfil de desarrollo', description:'La persona envió información que requiere tu contraste y validación.', target:'#perfil-inicial', label:'Revisar perfil' };
+      if (evidence.some((item) => item.validationStatus === 'pending')) return { title:'Revisa una evidencia pendiente', description:'Confirma si puede usarse como antecedente para la conversación de desarrollo.', target:'#evidencias', label:'Revisar evidencias' };
+      if (workActivities.some((item) => item.validationStatus === 'pending_review')) return { title:'Revisa una tarea pendiente', description:'Valida la información declarada o registra feedback privado para orientar el análisis.', target:'#tareas', label:'Revisar tareas' };
+      return { title:'Consulta la última orientación', description:'No hay revisiones operativas pendientes para esta persona.', target:'#historial', label:'Ver historial' };
+    }
+    if (role === 'admin') return { title:'Revisa la trazabilidad del perfil', description:'People acompaña el gobierno del modelo; las validaciones operativas corresponden al líder.', target:'#historial', label:'Ver historial' };
+    if (!profile?.profileCompleted) return { title:'Completa tu perfil de desarrollo', description:'Describe tu rol y contexto para iniciar una conversación informada.', target:'#perfil-inicial', label:'Completar perfil' };
+    if (profile.validationStatus === 'changes_requested') return { title:'Actualiza tu perfil de desarrollo', description:'Tu líder solicitó ajustes antes de continuar con la orientación.', target:'#perfil-inicial', label:'Actualizar perfil' };
+    if (workActivities.length === 0 && evidence.length === 0) return { title:'Registra una tarea o evidencia', description:'Agrega un ejemplo de tu trabajo para dar contexto a la conversación.', target:'#tareas', label:'Registrar tarea' };
+    if (!orientation) return { title:'Solicita tu orientación asistida por IA', description:'Con tu perfil y ejemplos registrados, prepara un borrador para conversar con tu líder.', target:'#orientacion', label:'Ver orientación' };
+    return { title:'Mantén actualizada tu información', description:'Registra avances y resultados relevantes para enriquecer la próxima conversación.', target:'#tareas', label:'Actualizar tareas' };
+  }, [dashboard, orientation, profile, role]);
 
   async function askGuide(question: string) {
     const clean = question.trim();
@@ -201,7 +233,7 @@ export default function Home() {
         body:JSON.stringify({ question:clean }),
       });
       const data = await response.json() as { answer?:string; error?:string };
-      setMessages((current) => [...current, data.answer ?? data.error ?? 'No fue posible generar una orientación.']);
+      setMessages((current) => [...current, qualitativeMaturityLanguage(data.answer ?? data.error ?? 'No fue posible generar una orientación.')]);
     } catch {
       setMessages((current) => [...current, 'No fue posible conectar con la guía en este momento.']);
     } finally {
@@ -452,16 +484,16 @@ export default function Home() {
         <div className="brand" aria-label="Evoluciona"><span className="brand-mark">E</span><span>Evoluciona</span></div>
         <nav className="main-nav" aria-label="Navegación principal">
           <a className="nav-item active" href="#resumen"><House aria-hidden="true" /> {role === 'collaborator' ? 'Mi desarrollo' : 'Perfil de ' + firstName}</a>
-          <a className="nav-item" href="#perfil-inicial"><UserRound aria-hidden="true" /> {role === 'collaborator' ? 'Mi perfil' : 'Perfil inicial'}</a>
+          <a className="nav-item" href="#perfil-inicial"><UserRound aria-hidden="true" /> Perfil de desarrollo</a>
           <a className="nav-item" href="#tareas"><ClipboardCheck aria-hidden="true" /> {role === 'collaborator' ? 'Mis tareas' : 'Tareas de trabajo'}</a>
           <a className="nav-item" href="#ruta"><Map aria-hidden="true" /> Mapa de carrera</a>
           <a className="nav-item" href="#evidencias"><FileText aria-hidden="true" /> Evidencias</a>
           <a className="nav-item" href="#historial"><History aria-hidden="true" /> {role === 'collaborator' ? 'Mi historial' : 'Historial'}</a>
         </nav>
         <div className="side-note">
-          <span className="side-label">Ciclo 2026</span>
-          <strong>{!profile?.profileCompleted ? 'Completa tu perfil inicial' : profile.validationStatus === 'pending_review' ? 'Tu perfil espera validación' : profile.validationStatus === 'changes_requested' ? 'Tu perfil requiere ajustes' : 'Tu perfil está listo para conversar'}</strong>
-          <span>Las decisiones oficiales siempre requieren revisión humana.</span>
+          <span className="side-label">Siguiente acción</span>
+          <strong>{nextAction.title}</strong>
+          <span>{nextAction.description}</span>
         </div>
         <div className="user-card">
           <span className="avatar">{initials}</span>
@@ -500,25 +532,26 @@ export default function Home() {
               <div className="human-loop"><span className="loop-icon"><Bot aria-hidden="true" /></span><span><strong>Orientación asistida por IA</strong><small>Es una sugerencia; requiere validación de tu líder y de People para cualquier cambio oficial.</small></span></div>
             </div>
             <div className="maturity-card">
-              <div className="maturity-head"><span>Tramo de madurez orientativo</span><span className="status-pill">{orientation ? 'Análisis listo' : 'Pendiente de análisis'}</span></div>
-              <div className="maturity-score">
-                <span className="score-ring"><strong>{displayedBand ?? '—'}</strong><small>{displayedBand ? 'orientativo' : 'por analizar'}</small></span>
-                <div><h2>{displayedBand ? maturityLabels[displayedBand] : 'Madurez por analizar'}</h2><p>{orientation ? `Confianza ${confidenceLabels[orientation.maturityConfidence]}; requiere contraste con tu líder.` : 'Completa tu perfil y registra ejemplos de qué haces y cómo trabajas.'}</p></div>
-              </div>
-              <div className="segment-bar" aria-label="Bandas Growth Mindset orientativas"><span className={'segment t1 ' + (displayedBand === 'T1' ? 'active' : '')}>T1</span><span className={'segment t2 ' + (displayedBand === 'T2' ? 'active' : '')}>T2</span><span className={'segment t3 ' + (displayedBand === 'T3' ? 'active' : '')}>T3</span></div>
-              {orientation?.maturitySummary && (
+              <div className="maturity-head"><span>Orientación sobre tu desarrollo</span><span className="status-pill">{orientation ? 'Análisis listo' : 'Pendiente de análisis'}</span></div>
+              <div className="maturity-copy"><Sparkles aria-hidden="true" /><div><h2>{maturityMessage}</h2><p>{orientation ? `Confianza ${confidenceLabels[orientation.maturityConfidence]}; requiere contraste con tu líder.` : 'Completa tu perfil y registra ejemplos de qué haces y cómo trabajas.'}</p></div></div>
+              {orientation && displayedMaturitySummary && (
                 <div className="maturity-analysis-snippet" aria-label="Resumen del último análisis">
                   <span className="snippet-label"><Sparkles aria-hidden="true" />Resumen del análisis</span>
-                  <p>{orientation.maturitySummary.length > 230 ? orientation.maturitySummary.slice(0, 227) + '…' : orientation.maturitySummary}</p>
+                  <p>{displayedMaturitySummary.length > 230 ? displayedMaturitySummary.slice(0, 227) + '…' : displayedMaturitySummary}</p>
                   {orientation.updatedAt && <span className="snippet-date">{new Date(orientation.updatedAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' })}</span>}
                 </div>
               )}
             </div>
           </section>
 
+          <section className={'next-action-card next-action-' + role} aria-label="Siguiente acción principal">
+            <div><span className="action-eyebrow">Siguiente acción principal</span><h2>{nextAction.title}</h2><p>{nextAction.description}</p></div>
+            <button className="approve-button" type="button" onClick={() => document.querySelector(nextAction.target)?.scrollIntoView({ behavior:'smooth' })}>{nextAction.label}</button>
+          </section>
+
           {role === 'leader' && (
             <section className="role-context leader-context">
-              <div><h2>El análisis necesita una mirada humana</h2><p>La IA propone un tramo y organiza señales; el líder contrasta el contexto y entrega feedback.</p></div>
+              <div><h2>La orientación necesita una mirada humana</h2><p>La IA organiza señales; el líder contrasta el contexto y entrega feedback.</p></div>
               <div className="review-queue"><span><strong>Colaboradora demostrativa</strong><small>Análisis de perfil · referencia orientativa</small></span><button onClick={() => document.querySelector('#orientacion')?.scrollIntoView({ behavior:'smooth' })}>Ver análisis</button></div>
             </section>
           )}
@@ -529,9 +562,18 @@ export default function Home() {
             </section>
           )}
 
+          <details className="ai-explainer">
+            <summary><span><Bot aria-hidden="true" /> Cómo funciona la orientación asistida por IA</span><small>Ver detalles</small></summary>
+            <div className="ai-explainer-grid">
+              <section><strong>Qué hace</strong><p>Organiza la información disponible, explica las necesidades del rol e identifica señales o información que conviene contrastar en una conversación de desarrollo.</p></section>
+              <section><strong>Qué información utiliza</strong><p>El perfil declarado, las tareas, las evidencias y sus estados de revisión, además de los criterios del mapa de carrera. Las observaciones privadas del líder, si existen, se procesan solo en el servidor y no se muestran ni se citan.</p></section>
+              <section><strong>Qué no puede hacer</strong><p>No evalúa desempeño, no decide promociones, categorías ni compensaciones; tampoco valida perfiles, tareas o evidencias, ni modifica información oficial.</p></section>
+            </div>
+          </details>
+
           <div className="dashboard-grid">
             <section className="panel profile-panel" id="perfil-inicial">
-              <div className="panel-heading"><div><h2>{role === 'collaborator' ? 'Mi perfil inicial' : 'Perfil inicial de ' + firstName}</h2><p className="panel-subtitle">{role === 'collaborator' ? 'Información declarada por ti. No cambia tu posición ni categoría oficial.' : 'Información declarada por la persona. La validación no modifica su categoría oficial.'}</p></div><span className={'review-pill status-' + (profile?.validationStatus ?? 'pending')}>{profileValidationLabel}</span></div>
+              <div className="panel-heading"><div><h2>{role === 'collaborator' ? 'Mi perfil de desarrollo' : 'Perfil de desarrollo de ' + firstName}</h2><p className="panel-subtitle">{role === 'collaborator' ? 'Información declarada por ti. No cambia tu posición ni categoría oficial.' : 'Información declarada por la persona. La validación no modifica su categoría oficial.'}</p></div><span className={'review-pill status-' + (profile?.validationStatus ?? 'pending')}>{profileValidationLabel}</span></div>
               {role === 'collaborator' && (!profile?.profileCompleted || profileEditing) ? (
                 <form className="profile-form" key={(profile?.fullName ?? 'sin-perfil') + String(profile?.profileCompleted)} onSubmit={submitProfile}>
                   <div className="role-selectors">
@@ -588,7 +630,7 @@ export default function Home() {
                     </div>
                   )}
                 </div>
-              ) : <p className="empty-copy">La persona colaboradora aún no ha enviado su perfil inicial.</p>}
+              ) : <p className="empty-copy">La persona colaboradora aún no ha enviado su perfil de desarrollo.</p>}
             </section>
 
             <section className="panel tasks-panel" id="tareas">
@@ -600,7 +642,7 @@ export default function Home() {
                   <button className="outline-button" type="submit" disabled={taskBusy || !profile?.profileCompleted}>{taskBusy ? 'Registrando…' : 'Agregar tarea en curso'}</button>
                 </form>
               )}
-              {!profile?.profileCompleted && role === 'collaborator' && <p className="helper-text">Primero guarda tu perfil inicial para registrar tareas.</p>}
+              {!profile?.profileCompleted && role === 'collaborator' && <p className="helper-text">Primero guarda tu perfil de desarrollo para registrar tareas.</p>}
               <div className="task-list">
                 {(dashboard?.workActivities ?? []).map((activity) => (
                   <article className="task-item" key={activity.id}>
@@ -621,7 +663,7 @@ export default function Home() {
             </section>
 
             <section className="panel evidence-panel" id="evidencias">
-              <div className="panel-heading compact"><div><h2>{role === 'collaborator' ? 'Evidencias' : 'Evidencias de ' + firstName}</h2><p className="evidence-intro">{role === 'collaborator' ? 'Documenta resultados, aprendizajes, certificaciones y feedback recibido.' : 'Revisa evidencias declaradas, agrega feedback y valida o rechaza su uso como antecedente conversacional.'}</p></div><span className="count-badge">{dashboard?.evidence?.length ?? 0}</span></div>
+              <div className="panel-heading compact"><div><h2>{role === 'collaborator' ? 'Evidencias' : 'Evidencias de ' + firstName}</h2><p className="evidence-intro">{role === 'collaborator' ? 'Documenta resultados, aprendizajes, certificaciones y feedback recibido.' : role === 'leader' ? 'Revisa evidencias declaradas, agrega feedback y valida o rechaza su uso como antecedente conversacional.' : 'Consulta las evidencias, sus estados de revisión y la trazabilidad disponible.'}</p></div><span className="count-badge">{dashboard?.evidence?.length ?? 0}</span></div>
               {role === 'collaborator' && <button className="primary-button evidence-create-button" onClick={() => setEvidenceOpen(true)}>+ Registrar evidencia</button>}
               <div className="evidence-list">
                 {(dashboard?.evidence ?? []).map((evidence) => (
@@ -639,27 +681,27 @@ export default function Home() {
             </section>
 
             <section className="panel orientation-panel" id="orientacion">
-              <div className="panel-heading"><div><h2>Análisis y orientación de mi perfil</h2><p className="panel-subtitle">La IA analiza qué haces, cómo trabajas y qué necesita tu perfil actual según el mapa de talento.</p></div><Sparkles className="panel-sparkle" aria-hidden="true" /></div>
+              <div className="panel-heading"><div><h2>Análisis y orientación de mi perfil de desarrollo</h2><p className="panel-subtitle">La IA analiza qué haces, cómo trabajas y qué necesita tu perfil actual según el mapa de talento.</p></div><Sparkles className="panel-sparkle" aria-hidden="true" /></div>
               <button className="approve-button orientation-button" type="button" onClick={() => void requestOrientation()} disabled={role !== 'collaborator' || orientationBusy || !profile?.profileCompleted || (dashboard?.workActivities?.length === 0 && dashboard?.evidence?.length === 0)}>{orientationBusy ? 'Preparando borrador…' : orientation ? 'Actualizar análisis' : 'Analizar mi perfil (borrador IA)'}</button>
               <p className="ai-disclaimer" role="note"><strong>Orientación, no validación.</strong> Lo generado por IA es una sugerencia basada en la información declarada y puede no reflejar por completo tu caso real. Úsala para comprender tu avance y preparar conversaciones sobre tu carrera; debe contrastarse con tu líder y, para cualquier validación o cambio oficial, contar con la aprobación de People.</p>
               {orientationError && <p className="form-error" role="alert">{orientationError}</p>}
               {orientation && (
                 <div className="orientation-result" aria-live="polite">
                   <div className="analysis-overview">
-                    <span className={'analysis-band band-' + orientation.maturityBand}>{orientation.maturityBand}</span>
+                    <span className="analysis-label">Orientación cualitativa</span>
                     <div>
-                      <strong>{maturityLabels[orientation.maturityBand]}</strong>
-                      <p>{orientation.maturitySummary}</p>
+                      <strong>{maturityMessage}</strong>
+                      <p>{displayedMaturitySummary}</p>
                       <small>Confianza {confidenceLabels[orientation.maturityConfidence]}</small>
                     </div>
                   </div>
-                  <div className="analysis-work-summary"><strong>Lo que haces hoy</strong><p>{orientation.workSummary}</p></div>
+                  <div className="analysis-work-summary"><strong>Lo que haces hoy</strong><p>{qualitativeMaturityLanguage(orientation.workSummary)}</p></div>
                   <div className="analysis-columns">
-                    <div className="analysis-block"><span className="analysis-kicker"><Compass aria-hidden="true" />Cómo trabajas</span><ul>{orientation.waysOfWorking.map((item) => <li key={item}>{item}</li>)}</ul></div>
-                    <div className="analysis-block"><span className="analysis-kicker"><Layers3 aria-hidden="true" />Lo que necesita tu perfil</span><ul>{orientation.profileNeeds.map((item) => <li key={item}>{item}</li>)}</ul></div>
-                    <div className="analysis-block guidance"><span className="analysis-kicker"><Sparkles aria-hidden="true" />Cómo seguir mejorando</span><ul>{orientation.developmentGuidance.map((item) => <li key={item}>{item}</li>)}</ul></div>
+                    <div className="analysis-block"><span className="analysis-kicker"><Compass aria-hidden="true" />Cómo trabajas</span><ul>{orientation.waysOfWorking.map((item) => <li key={item}>{qualitativeMaturityLanguage(item)}</li>)}</ul></div>
+                    <div className="analysis-block"><span className="analysis-kicker"><Layers3 aria-hidden="true" />Lo que necesita tu perfil</span><ul>{orientation.profileNeeds.map((item) => <li key={item}>{qualitativeMaturityLanguage(item)}</li>)}</ul></div>
+                    <div className="analysis-block guidance"><span className="analysis-kicker"><Sparkles aria-hidden="true" />Cómo seguir mejorando</span><ul>{orientation.developmentGuidance.map((item) => <li key={item}>{qualitativeMaturityLanguage(item)}</li>)}</ul></div>
                   </div>
-                  {orientation.missingInformation.length > 0 && <div className="analysis-missing"><strong>Para afinar la orientación</strong><span>{orientation.missingInformation.join(' · ')}</span></div>}
+                  {orientation.missingInformation.length > 0 && <div className="analysis-missing"><strong>Para afinar la orientación</strong><span>{orientation.missingInformation.map(qualitativeMaturityLanguage).join(' · ')}</span></div>}
                   <small>Orientación sugerida por IA; no valida tu situación real ni modifica tu categoría. Requiere contraste con tu líder y aprobación de People para cualquier cambio oficial · {orientation.updatedAt ? 'Actualizado ' + new Date(orientation.updatedAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' }) : ''}</small>
                 </div>
               )}
@@ -668,7 +710,7 @@ export default function Home() {
             <section className="panel history-panel" id="historial">
               <div className="panel-heading"><div><h2>{role === 'collaborator' ? 'Mi historial' : 'Historial de ' + firstName}</h2><p className="panel-subtitle">Contexto actual de desarrollo y la última orientación disponible.</p></div><History aria-hidden="true" className="history-icon" /></div>
               <div className="history-person"><span className="avatar">{initials}</span><div><strong>{profile?.fullName ?? 'Perfil en carga'}</strong><p>Perfil de desarrollo · {profile?.currentJobRole ?? 'Rol por completar'}</p></div><span className="history-ai"><Bot aria-hidden="true" /> Orientación asistida por IA</span></div>
-              <div className="history-orientation" aria-live="polite">{orientation ? <><div><span className={'analysis-band band-' + orientation.maturityBand}>{maturityLabels[orientation.maturityBand]}</span><small>Tramo de madurez orientativo · confianza {confidenceLabels[orientation.maturityConfidence]}</small></div><p>{orientation.maturitySummary}</p><small>Resumen basado en las tareas declaradas y sus estados de revisión. Es una orientación para conversar con el líder; no modifica ninguna categoría oficial.</small></> : <><div><span className="history-pending">Sin orientación vigente</span><small>Tramo de madurez orientativo</small></div><p>Cuando exista un análisis, aquí se explicará de forma breve cómo las tareas registradas se relacionan con el tramo orientativo.</p></>}</div>
+              <div className="history-orientation" aria-live="polite">{orientation ? <><div><span className="history-maturity-message">{maturityMessage}</span><small>Orientación cualitativa · confianza {confidenceLabels[orientation.maturityConfidence]}</small></div><p>{displayedMaturitySummary}</p><small>Resumen basado en las tareas declaradas y sus estados de revisión. Es una orientación para conversar con el líder; no modifica ninguna categoría oficial.</small></> : <><div><span className="history-pending">Sin orientación vigente</span><small>Orientación cualitativa</small></div><p>Cuando exista un análisis, aquí se explicará de forma breve cómo las tareas registradas se relacionan con la orientación de desarrollo.</p></>}</div>
             </section>
 
             <section className="panel career-panel career-explorer" id="ruta" data-family={mapFamily?.id}>
@@ -728,10 +770,10 @@ export default function Home() {
       <aside className="copilot" aria-label="Asistente de desarrollo">
         <div className="copilot-head"><span className="ai-orb"><Bot aria-hidden="true" /></span><span><strong>Guía de desarrollo</strong><small><i /> Disponible</small></span><button aria-label="Cerrar asistente"><X aria-hidden="true" /></button></div>
         <div className="copilot-body">
-          <div className="assistant-message"><span className="mini-orb"><Sparkles aria-hidden="true" /></span><div><p>Puedo ayudarte a entender tu tramo orientativo, lo que necesita tu perfil y cómo convertir tu trabajo en ejemplos para conversar.</p><small>Mis respuestas son sugerencias y pueden no reflejar por completo tu caso real. No evalúo personas ni tomo decisiones de carrera: contrástalas con tu líder y con People antes de cualquier validación oficial.</small></div></div>
+          <div className="assistant-message"><span className="mini-orb"><Sparkles aria-hidden="true" /></span><div><p>Puedo ayudarte a entender tu orientación actual, lo que necesita tu perfil de desarrollo y cómo convertir tu trabajo en ejemplos para conversar.</p><small>Mis respuestas son sugerencias y pueden no reflejar por completo tu caso real. No evalúo personas ni tomo decisiones de carrera: contrástalas con tu líder y con People antes de cualquier validación oficial.</small></div></div>
           {messages.map((message, index) => <div className="assistant-message followup" key={message + index}><span className="mini-orb"><Sparkles aria-hidden="true" /></span><div><p>{message}</p><small>Borrador de orientación: úsalo para guiar tu carrera, no como una validación. Requiere contraste con tu líder y aprobación de People para cualquier cambio oficial.</small></div></div>)}
           {isThinking && <div className="thinking">Revisando criterios y evidencias…</div>}
-          <div className="suggestions"><button onClick={() => void askGuide('¿Por qué mi análisis propone este tramo de madurez?')}>¿Por qué aparece este tramo?</button><button onClick={() => void askGuide('¿Qué necesita mi perfil actual según el mapa de talento?')}>¿Qué necesita mi perfil actual?</button><button onClick={() => void askGuide('¿Cómo puedo mejorar a partir de las tareas que realizo?')}>¿Cómo puedo mejorar desde mi trabajo?</button></div>
+          <div className="suggestions"><button onClick={() => void askGuide('¿Por qué mi análisis propone esta orientación de desarrollo?')}>¿Por qué aparece esta orientación?</button><button onClick={() => void askGuide('¿Qué necesita mi perfil de desarrollo según el mapa de talento?')}>¿Qué necesita mi perfil de desarrollo?</button><button onClick={() => void askGuide('¿Cómo puedo mejorar a partir de las tareas que realizo?')}>¿Cómo puedo mejorar desde mi trabajo?</button></div>
         </div>
         <form className="prompt-box" onSubmit={(event) => { event.preventDefault(); void askGuide(prompt); }}>
           <label htmlFor="prompt">Conversa sobre tu desarrollo</label>

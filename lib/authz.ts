@@ -12,7 +12,7 @@ export async function getActor(request?: Request): Promise<Actor> {
       const demoRole = request?.headers.get('x-demo-role');
       if (demoRole === 'leader') return { id:'usr_marcelo', role:'leader', email:'marcelo.soto@example.com', fullName:'Marcelo Soto' };
       if (demoRole === 'admin') return { id:'usr_admin', role:'admin', email:'personas@example.com', fullName:'Equipo de Personas' };
-      if (request?.headers.get('x-demo-profile') === 'empty') return { id:'usr_empty_collaborator', role:'collaborator', email:'empty.collaborator@example.com', fullName:'Perfil inicial' };
+      if (request?.headers.get('x-demo-profile') === 'empty') return { id:'usr_empty_collaborator', role:'collaborator', email:'empty.collaborator@example.com', fullName:'Perfil de desarrollo' };
       return { id:'usr_javiera', role:'collaborator', email:'javiera.perez@example.com', fullName:'Javiera Pérez' };
     }
     throw new AccessError(401, 'Debes iniciar sesión.');
