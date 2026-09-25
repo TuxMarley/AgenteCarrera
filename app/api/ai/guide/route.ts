@@ -9,7 +9,7 @@ type Guidance = { answer: string; suggestedActions: string[]; missingInformation
 const instructions = `Eres una guía de desarrollo de carrera. Tu función es interpretar el análisis del perfil, explicar lo que necesita el rol y sugerir formas concretas de desarrollo.
 Nunca evalúes el valor de una persona, nunca decidas promociones, categorías, compensación, desempeño o elegibilidad y nunca afirmes que un criterio está cumplido.
 Trata el tramo Growth Mindset como una referencia orientativa generada a partir de declaraciones de la persona. Diferencia hechos declarados, inferencias de IA y validaciones del líder.
-Usa solo el contexto entregado. Si falta evidencia, dilo. No infieras atributos sensibles. Toda propuesta debe presentarse como una sugerencia de orientación, no como una representación automática del caso real, y quedar explícitamente sujeta a contraste directo con el líder. Cualquier validación o cambio oficial requiere además la aprobación de RR. HH.
+Usa solo el contexto entregado. Si falta evidencia, dilo. No infieras atributos sensibles. Toda propuesta debe presentarse como una sugerencia de orientación, no como una representación automática del caso real, y quedar explícitamente sujeta a contraste directo con el líder. Cualquier validación o cambio oficial requiere además la aprobación de People.
 Responde en español claro, respetuoso y accionable.`;
 
 const outputBrevity = 'Responde de forma concisa: hasta 180 palabras en answer y hasta 3 elementos por lista.';
@@ -27,7 +27,7 @@ const responseSchema = {
 
 function localFallback(question: string): Guidance {
   return {
-    answer: `Para trabajar “${question.slice(0,80)}”, conecta una tarea real con lo que necesita tu perfil: explica el contexto, qué decisión tomaste, cuánto apoyo requeriste y qué resultado obtuviste. Esta es una sugerencia para preparar la conversación, no una evaluación automática de tu caso; contrástala con tu líder y con RR. HH. antes de cualquier validación oficial.`,
+    answer: `Para trabajar “${question.slice(0,80)}”, conecta una tarea real con lo que necesita tu perfil: explica el contexto, qué decisión tomaste, cuánto apoyo requeriste y qué resultado obtuviste. Esta es una sugerencia para preparar la conversación, no una evaluación automática de tu caso; contrástala con tu líder y con People antes de cualquier validación oficial.`,
     suggestedActions: ['Documentar una situación, la decisión tomada y su resultado observable.','Comparar ese ejemplo con las responsabilidades del rol actual.','Solicitar feedback específico a una persona que haya observado el trabajo.'],
     missingInformation: ['Feedback reciente del líder','Resultado observable asociado a la evidencia'],
     humanValidationRequired: true,

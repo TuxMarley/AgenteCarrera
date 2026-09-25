@@ -17,14 +17,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ id:st
 
     await ensureDatabase();
     const db = rawDb();
-    const before = await db.prepare(`SELECT id, title, description, status, started_at AS startedAt, completed_at AS completedAt FROM work_activities WHERE id = ? AND user_id = ?`).bind(id, actor.id).first();
+    const before = await db.prepare(`SELECT id, title, description, status, validation_status AS validationStatus, started_at AS startedAt, completed_at AS completedAt FROM work_activities WHERE id = ? AND user_id = ?`).bind(id, actor.id).first();
     if (!before) return Response.json({ error:'No encontramos esta tarea.' }, { status:404 });
     const timestamp = Date.now();
     const completedAt = status === 'completed' ? timestamp : null;
     await db.batch([
-      db.prepare(`UPDATE work_activities SET status = ?, completed_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`).bind(status, completedAt, timestamp, id, actor.id),
-      db.prepare(`INSERT INTO audit_log (id, actor_id, target_user_id, action, entity_type, entity_id, before_json, after_json, created_at) VALUES (?, ?, ?, 'update_status', 'work_activity', ?, ?, ?, ?)`).bind(crypto.randomUUID(), actor.id, actor.id, id, JSON.stringify(before), JSON.stringify({ ...(before as object), status, completedAt }), timestamp),
+      db.prepare(`UPDATE work_activities SET status = ?, completed_at = ?, validation_status = 'pending_review', reviewed_by = NULL, reviewed_at = NULL, updated_at = ? WHERE id = ? AND user_id = ?`).bind(status, completedAt, timestamp, id, actor.id),
+      db.prepare(`DELETE FROM profile_analyses WHERE user_id = ?`).bind(actor.id),
+      db.prepare(`INSERT INTO audit_log (id, actor_id, target_user_id, action, entity_type, entity_id, before_json, after_json, created_at) VALUES (?, ?, ?, 'update_status', 'work_activity', ?, ?, ?, ?)`).bind(crypto.randomUUID(), actor.id, actor.id, id, JSON.stringify(before), JSON.stringify({ ...(before as object), status, completedAt, validationStatus:'pending_review' }), timestamp),
     ]);
-    return Response.json({ id, status, completedAt, updatedAt:timestamp });
+    return Response.json({ id, status, completedAt, validationStatus:'pending_review', updatedAt:timestamp });
   } catch (error) { return apiError(error); }
 }

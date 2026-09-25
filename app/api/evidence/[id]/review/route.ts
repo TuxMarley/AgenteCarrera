@@ -8,7 +8,7 @@ function readText(value: unknown) { return typeof value === 'string' ? value.tri
 export async function POST(request: Request, context: { params: Promise<{ id:string }> }) {
   try {
     const actor = await getActor(request);
-    requireRole(actor, ['leader', 'admin']);
+    requireRole(actor, ['leader']);
     const { id } = await context.params;
     let body: ReviewInput;
     try { body = await request.json() as ReviewInput; }
@@ -24,7 +24,7 @@ export async function POST(request: Request, context: { params: Promise<{ id:str
     const db = rawDb();
     const evidence = await db.prepare(`SELECT evidence.id, evidence.user_id AS userId, evidence.validation_status AS validationStatus, evidence.leader_feedback AS leaderFeedback, user.manager_id AS managerId FROM evidence JOIN users user ON user.id = evidence.user_id WHERE evidence.id = ?`).bind(id).first<{ id:string; userId:string; validationStatus:string; leaderFeedback:string|null; managerId:string|null }>();
     if (!evidence) return Response.json({ error:'Evidencia no encontrada.' }, { status:404 });
-    if (actor.role === 'leader' && evidence.managerId !== actor.id) return Response.json({ error:'Solo puedes revisar evidencias de personas asignadas a tu equipo.' }, { status:403 });
+    if (evidence.managerId !== actor.id) return Response.json({ error:'Solo puedes revisar evidencias de personas asignadas a tu equipo.' }, { status:403 });
     if (evidence.validationStatus !== 'pending') return Response.json({ error:'Esta evidencia no está pendiente de revisión.' }, { status:409 });
 
     const validationStatus = decision === 'validate' ? 'validated' : 'rejected';

@@ -8,7 +8,7 @@ function readText(value: unknown) { return typeof value === 'string' ? value.tri
 export async function POST(request: Request) {
   try {
     const actor = await getActor(request);
-    requireRole(actor, ['leader', 'admin']);
+    requireRole(actor, ['leader']);
     let body: ReviewInput;
     try { body = await request.json() as ReviewInput; }
     catch { return Response.json({ error:'La solicitud debe contener JSON válido.' }, { status:400 }); }
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const db = rawDb();
     const target = await db.prepare(`SELECT id, manager_id AS managerId FROM users WHERE id = ?`).bind(targetUserId).first<{ id:string; managerId:string|null }>();
     if (!target) return Response.json({ error:'Perfil no encontrado.' }, { status:404 });
-    if (actor.role === 'leader' && target.managerId !== actor.id) return Response.json({ error:'Solo puedes revisar perfiles de personas asignadas a tu equipo.' }, { status:403 });
+    if (target.managerId !== actor.id) return Response.json({ error:'Solo puedes revisar perfiles de personas asignadas a tu equipo.' }, { status:403 });
 
     const profile = await db.prepare(`SELECT user_id AS userId, validation_status AS validationStatus, leader_feedback AS leaderFeedback, reviewer_private_observation AS reviewerPrivateObservation FROM career_profiles WHERE user_id = ?`).bind(targetUserId).first<{ userId:string; validationStatus:string; leaderFeedback:string|null; reviewerPrivateObservation:string|null }>();
     if (!profile) return Response.json({ error:'La persona todavía no ha enviado su perfil inicial.' }, { status:404 });

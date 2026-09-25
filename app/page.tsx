@@ -35,7 +35,11 @@ type Profile = {
   officialCategory:string|null;
   orientativeBand:string|null;
 };
-type WorkActivity = { id:string; title:string; description:string; status:'in_progress'|'completed'; completedAt:number|null };
+type WorkActivity = {
+  id:string; title:string; description:string; status:'in_progress'|'completed'; completedAt:number|null;
+  validationStatus:'pending_review'|'validated'|'changes_requested'; reviewedAt?:number|null; reviewedByName?:string|null;
+  privateFeedback?:Array<{ id:string; content:string; createdAt:number; authorName:string|null }>;
+};
 type ProfileAnalysis = {
   maturityBand:'T1'|'T2'|'T3';
   maturityConfidence:'low'|'medium'|'high';
@@ -66,6 +70,7 @@ const maturityLabels = {
 } as const;
 const confidenceLabels = { low:'baja', medium:'media', high:'alta' } as const;
 const evidenceStatusLabels = { draft:'Borrador', pending:'Pendiente de revisión', validated:'Validada', rejected:'No validada' } as const;
+const taskValidationLabels = { pending_review:'Pendiente de revisión', validated:'Validada por líder', changes_requested:'Requiere ajustes' } as const;
 const evidenceTypeLabels:Record<string,string> = { achievement:'Hito o resultado', certification:'Certificación', feedback:'Feedback', learning:'Aprendizaje' };
 
 export default function Home() {
@@ -93,6 +98,9 @@ export default function Home() {
   const [taskForm, setTaskForm] = useState({ title:'', description:'' });
   const [taskBusy, setTaskBusy] = useState(false);
   const [taskError, setTaskError] = useState('');
+  const [taskReviewFeedback, setTaskReviewFeedback] = useState<Record<string,string>>({});
+  const [taskReviewBusy, setTaskReviewBusy] = useState<string|null>(null);
+  const [taskReviewNotice, setTaskReviewNotice] = useState('');
   const [orientation, setOrientation] = useState<ProfileAnalysis | null>(null);
   const [orientationBusy, setOrientationBusy] = useState(false);
   const [orientationError, setOrientationError] = useState('');
@@ -318,6 +326,40 @@ export default function Home() {
     }
   }
 
+  async function reviewTask(activity: WorkActivity, decision:'validate'|'changes') {
+    if (taskReviewBusy) return;
+    setTaskReviewBusy(activity.id);
+    setTaskReviewNotice('');
+    try {
+      const response = await fetch('/api/work-activities/' + activity.id + '/review', {
+        method:'POST', headers:{ ...demoHeaders, 'Content-Type':'application/json' }, body:JSON.stringify({ decision }),
+      });
+      const data = await response.json() as { error?:string };
+      if (!response.ok) { setTaskReviewNotice(data.error ?? 'No fue posible revisar la tarea.'); return; }
+      setTaskReviewNotice(decision === 'validate' ? 'Tarea validada. El próximo análisis considerará su estado revisado.' : 'Se solicitaron ajustes a la tarea. La persona podrá actualizarla y reenviarla a revisión.');
+      await refreshDashboard();
+    } catch { setTaskReviewNotice('No fue posible conectar para revisar la tarea.'); }
+    finally { setTaskReviewBusy(null); }
+  }
+
+  async function saveTaskFeedback(activity: WorkActivity) {
+    if (taskReviewBusy) return;
+    const content = taskReviewFeedback[activity.id] ?? '';
+    setTaskReviewBusy(activity.id);
+    setTaskReviewNotice('');
+    try {
+      const response = await fetch('/api/work-activities/' + activity.id + '/feedback', {
+        method:'POST', headers:{ ...demoHeaders, 'Content-Type':'application/json' }, body:JSON.stringify({ content }),
+      });
+      const data = await response.json() as { error?:string };
+      if (!response.ok) { setTaskReviewNotice(data.error ?? 'No fue posible guardar el feedback.'); return; }
+      setTaskReviewFeedback((current) => ({ ...current, [activity.id]:'' }));
+      setTaskReviewNotice('Feedback privado guardado como contexto interno para el próximo análisis.');
+      await refreshDashboard();
+    } catch { setTaskReviewNotice('No fue posible conectar para guardar el feedback.'); }
+    finally { setTaskReviewBusy(null); }
+  }
+
   async function requestOrientation() {
     setOrientationBusy(true);
     setOrientationError('');
@@ -409,12 +451,12 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand" aria-label="Evoluciona"><span className="brand-mark">E</span><span>Evoluciona</span></div>
         <nav className="main-nav" aria-label="Navegación principal">
-          <a className="nav-item active" href="#resumen"><House aria-hidden="true" /> Mi desarrollo</a>
-          <a className="nav-item" href="#perfil-inicial"><UserRound aria-hidden="true" /> Mi perfil</a>
-          <a className="nav-item" href="#tareas"><ClipboardCheck aria-hidden="true" /> Mis tareas</a>
+          <a className="nav-item active" href="#resumen"><House aria-hidden="true" /> {role === 'collaborator' ? 'Mi desarrollo' : 'Perfil de ' + firstName}</a>
+          <a className="nav-item" href="#perfil-inicial"><UserRound aria-hidden="true" /> {role === 'collaborator' ? 'Mi perfil' : 'Perfil inicial'}</a>
+          <a className="nav-item" href="#tareas"><ClipboardCheck aria-hidden="true" /> {role === 'collaborator' ? 'Mis tareas' : 'Tareas de trabajo'}</a>
           <a className="nav-item" href="#ruta"><Map aria-hidden="true" /> Mapa de carrera</a>
           <a className="nav-item" href="#evidencias"><FileText aria-hidden="true" /> Evidencias</a>
-          <a className="nav-item" href="#historial"><History aria-hidden="true" /> Mi historial</a>
+          <a className="nav-item" href="#historial"><History aria-hidden="true" /> {role === 'collaborator' ? 'Mi historial' : 'Historial'}</a>
         </nav>
         <div className="side-note">
           <span className="side-label">Ciclo 2026</span>
@@ -441,9 +483,9 @@ export default function Home() {
                 </select>
               </label>
             )}
-            <label className="role-switcher">Vista
-              <select value={role} onChange={(event) => { setRole(event.target.value as typeof role); setProfileEditing(false); setProfileReviewFeedback(''); setProfilePrivateObservation(''); setProfileReviewNotice(''); }}>
-                <option value="collaborator">Colaborador</option><option value="leader">Líder</option><option value="admin">RR. HH.</option>
+            <label className="role-switcher">Vista de perfil
+              <select value={role} onChange={(event) => { setRole(event.target.value as typeof role); setProfileEditing(false); setProfileReviewFeedback(''); setProfilePrivateObservation(''); setProfileReviewNotice(''); setTaskReviewFeedback({}); setTaskReviewNotice(''); }}>
+                <option value="collaborator">Colaborador</option><option value="leader">Líder</option><option value="admin">People</option>
               </select>
             </label>
           </div>
@@ -455,7 +497,7 @@ export default function Home() {
             <div className="hero-copy">
               <h1>{profile?.profileCompleted ? <><span>Hola, {firstName}.</span> Este es tu momento actual.</> : <><span>Comencemos por tu</span> perfil de desarrollo.</>}</h1>
               <p>{profile?.profileCompleted ? 'Registra tareas y evidencias para preparar tus próximos pasos junto a tu líder.' : 'Describe tu posición y el trabajo que realizas. Estos datos son tuyos y no modifican ninguna categoría oficial.'}</p>
-              <div className="human-loop"><span className="loop-icon"><Bot aria-hidden="true" /></span><span><strong>Orientación asistida por IA</strong><small>Es una sugerencia; requiere validación de tu líder y de RR. HH. para cualquier cambio oficial.</small></span></div>
+              <div className="human-loop"><span className="loop-icon"><Bot aria-hidden="true" /></span><span><strong>Orientación asistida por IA</strong><small>Es una sugerencia; requiere validación de tu líder y de People para cualquier cambio oficial.</small></span></div>
             </div>
             <div className="maturity-card">
               <div className="maturity-head"><span>Tramo de madurez orientativo</span><span className="status-pill">{orientation ? 'Análisis listo' : 'Pendiente de análisis'}</span></div>
@@ -482,7 +524,7 @@ export default function Home() {
           )}
           {role === 'admin' && (
             <section className="role-context admin-context">
-              <div><h2>Modelo GDNe-2026.1 activo</h2><p>La orientación se limita a criterios disponibles y mantiene trazabilidad de los cambios humanos.</p></div>
+              <div><h2>People · modelo GDNe-2026.1</h2><p>Vista de gobierno y trazabilidad. Las validaciones operativas corresponden al líder asignado.</p></div>
               <div className="guardrail-list"><span><Check aria-hidden="true" /> IA sin permisos de decisión</span><span><Check aria-hidden="true" /> Auditoría de cambios</span><span><Check aria-hidden="true" /> Evidencias privadas</span></div>
             </section>
           )}
@@ -528,13 +570,13 @@ export default function Home() {
                   <div className="profile-readonly-text"><strong>¿En qué trabajas hoy?</strong><p>{profile.workContext}</p></div>
                   {profile.developmentGoal && <div className="profile-readonly-text"><strong>Foco de desarrollo</strong><p>{profile.developmentGoal}</p></div>}
                   {profile.leaderFeedback && <div className="profile-feedback"><strong>{profile.validationStatus === 'changes_requested' ? 'Ajustes solicitados' : 'Comentario de revisión'}</strong><p>{profile.leaderFeedback}</p></div>}
-                  {role !== 'collaborator' && profile.reviewerPrivateObservation && <div className="profile-private-observation"><strong>Observación privada para la orientación</strong><p>{profile.reviewerPrivateObservation}</p><small>Solo visible para liderazgo y RR. HH.; no se muestra ni se cita a la persona colaboradora.</small></div>}
+                  {role !== 'collaborator' && profile.reviewerPrivateObservation && <div className="profile-private-observation"><strong>Observación privada para la orientación</strong><p>{profile.reviewerPrivateObservation}</p><small>Solo visible para liderazgo y People; no se muestra ni se cita a la persona colaboradora.</small></div>}
                   <div className="profile-readonly-footer">
-                    <span>{profile.validationStatus === 'validated' ? 'Validado' + (profile.reviewedByName ? ' por ' + profile.reviewedByName : '') + (profile.reviewedAt ? ' el ' + new Date(profile.reviewedAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' }) : '') : profile.validationStatus === 'changes_requested' ? 'Actualiza el perfil para volver a enviarlo a revisión.' : 'Esperando validación de tu líder o RR. HH.'}</span>
+                    <span>{profile.validationStatus === 'validated' ? 'Validado' + (profile.reviewedByName ? ' por ' + profile.reviewedByName : '') + (profile.reviewedAt ? ' el ' + new Date(profile.reviewedAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' }) : '') : profile.validationStatus === 'changes_requested' ? 'Actualiza el perfil para volver a enviarlo a revisión.' : 'Esperando validación de tu líder.'}</span>
                     {role === 'collaborator' && <button className="outline-button" type="button" onClick={openProfileEditor}>Editar perfil</button>}
                   </div>
                   {profileNotice && <p className={profileNotice.startsWith('Perfil enviado') ? 'form-success' : 'form-error'} role="status">{profileNotice}</p>}
-                  {role !== 'collaborator' && (
+                  {role === 'leader' && (
                     <div className="profile-review">
                       {profile.validationStatus === 'pending_review' ? <>
                         <h3>Revisión humana</h3><p>Contrasta la información declarada con la conversación y antecedentes disponibles. Esta decisión no cambia ninguna categoría oficial.</p>
@@ -550,7 +592,7 @@ export default function Home() {
             </section>
 
             <section className="panel tasks-panel" id="tareas">
-              <div className="panel-heading"><div><h2>Mis tareas de trabajo</h2><p className="panel-subtitle">Registra lo que estás realizando o ya completaste.</p></div><span className="count-badge neutral">{dashboard?.workActivities?.length ?? 0}</span></div>
+              <div className="panel-heading"><div><h2>{role === 'collaborator' ? 'Mis tareas de trabajo' : 'Tareas de trabajo de ' + firstName}</h2><p className="panel-subtitle">{role === 'collaborator' ? 'Registra lo que estás realizando o ya completaste. Cada actualización queda pendiente de revisión.' : role === 'leader' ? 'Valida tareas declaradas y registra feedback privado para enriquecer el próximo análisis.' : 'Consulta las tareas, sus estados de revisión y su trazabilidad.'}</p></div><span className="count-badge neutral">{dashboard?.workActivities?.length ?? 0}</span></div>
               {role === 'collaborator' && (
                 <form className="task-form" onSubmit={submitTask}>
                   <label>Tarea<input required minLength={3} maxLength={160} value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title:event.target.value }))} placeholder="Ej.: Preparar una revisión técnica" /></label>
@@ -563,12 +605,19 @@ export default function Home() {
                 {(dashboard?.workActivities ?? []).map((activity) => (
                   <article className="task-item" key={activity.id}>
                     <button className={'task-toggle ' + activity.status} onClick={() => void updateTaskStatus(activity)} disabled={role !== 'collaborator'} aria-label={activity.status === 'completed' ? 'Marcar tarea como en curso' : 'Marcar tarea como completada'}>{activity.status === 'completed' && <Check aria-hidden="true" />}</button>
-                    <div><strong>{activity.title}</strong><p>{activity.description}</p><small>{activity.status === 'completed' ? 'Completada' : 'En curso'} · declaración de la persona</small></div>
+                    <div className="task-copy"><strong>{activity.title}</strong><p>{activity.description}</p><small>{activity.status === 'completed' ? 'Completada' : 'En curso'} · declaración de la persona · <span className={'task-validation status-' + activity.validationStatus}>{taskValidationLabels[activity.validationStatus]}</span>{activity.reviewedByName ? ' · ' + activity.reviewedByName : ''}</small>
+                      {role !== 'collaborator' && activity.privateFeedback && activity.privateFeedback.length > 0 && <div className="task-private-feedback"><strong>Feedback privado del líder</strong>{activity.privateFeedback.map((feedback) => <p key={feedback.id}>{feedback.content}<small>{feedback.authorName ? feedback.authorName + ' · ' : ''}{new Date(feedback.createdAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' })}</small></p>)}</div>}
+                      {role === 'leader' && <div className="task-review">
+                        <label>Feedback privado para la orientación de IA<textarea value={taskReviewFeedback[activity.id] ?? ''} maxLength={600} rows={3} onChange={(event) => setTaskReviewFeedback((current) => ({ ...current, [activity.id]:event.target.value }))} placeholder="Describe señales o aspectos que conviene contrastar. No incluyas datos sensibles." /><small>Solo es visible para Liderazgo y People. La IA lo usa como contexto interno y nunca lo citará.</small></label>
+                        <div className="profile-form-actions"><button className="outline-button" type="button" onClick={() => void saveTaskFeedback(activity)} disabled={taskReviewBusy !== null}>{taskReviewBusy === activity.id ? 'Guardando…' : 'Guardar feedback privado'}</button>{activity.validationStatus === 'pending_review' && <><button className="approve-button" type="button" onClick={() => void reviewTask(activity, 'validate')} disabled={taskReviewBusy !== null}>Validar tarea</button><button className="outline-button" type="button" onClick={() => void reviewTask(activity, 'changes')} disabled={taskReviewBusy !== null}>Solicitar ajustes</button></>}</div>
+                      </div>}
+                    </div>
                   </article>
                 ))}
                 {dashboard && dashboard.workActivities.length === 0 && <p className="empty-copy">Aún no registras tareas. Agrega una para empezar a construir ejemplos de tu trabajo.</p>}
               </div>
               {taskError && <p className="form-error" role="alert">{taskError}</p>}
+              {taskReviewNotice && <p className={taskReviewNotice.startsWith('Tarea validada') || taskReviewNotice.startsWith('Se solicitaron') || taskReviewNotice.startsWith('Feedback privado') ? 'form-success' : 'form-error'} role="status">{taskReviewNotice}</p>}
             </section>
 
             <section className="panel evidence-panel" id="evidencias">
@@ -581,7 +630,7 @@ export default function Home() {
                     {evidence.description && <p>{evidence.description}</p>}
                     <div className="evidence-meta"><span>{new Date(evidence.occurredAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' })}</span>{evidence.originalFilename && <button type="button" onClick={() => void downloadEvidenceFile(evidence)} disabled={evidenceFileBusy === evidence.id}>{evidenceFileBusy === evidence.id ? 'Preparando archivo…' : 'Descargar archivo privado · ' + evidence.originalFilename}</button>}</div>
                     {evidence.leaderFeedback && <div className="evidence-feedback"><strong>Feedback de revisión{evidence.reviewedByName ? ' · ' + evidence.reviewedByName : ''}</strong><p>{evidence.leaderFeedback}</p></div>}
-                    {role !== 'collaborator' && evidence.validationStatus === 'pending' && <div className="evidence-review"><label>Feedback para la persona (obligatorio si no validas)<textarea value={evidenceReviewFeedback[evidence.id] ?? ''} maxLength={1200} rows={3} onChange={(event) => setEvidenceReviewFeedback((current) => ({ ...current, [evidence.id]:event.target.value }))} placeholder="Explica qué se confirmó o qué falta para poder validar." /></label><div className="profile-form-actions"><button className="primary-button" type="button" onClick={() => void reviewEvidence(evidence, 'validate')} disabled={evidenceReviewBusy !== null}>{evidenceReviewBusy === evidence.id ? 'Registrando…' : 'Validar evidencia'}</button><button className="evidence-reject-button" type="button" onClick={() => void reviewEvidence(evidence, 'reject')} disabled={evidenceReviewBusy !== null}>No validar</button></div></div>}
+                    {role === 'leader' && evidence.validationStatus === 'pending' && <div className="evidence-review"><label>Feedback para la persona (obligatorio si no validas)<textarea value={evidenceReviewFeedback[evidence.id] ?? ''} maxLength={1200} rows={3} onChange={(event) => setEvidenceReviewFeedback((current) => ({ ...current, [evidence.id]:event.target.value }))} placeholder="Explica qué se confirmó o qué falta para poder validar." /></label><div className="profile-form-actions"><button className="primary-button" type="button" onClick={() => void reviewEvidence(evidence, 'validate')} disabled={evidenceReviewBusy !== null}>{evidenceReviewBusy === evidence.id ? 'Registrando…' : 'Validar evidencia'}</button><button className="evidence-reject-button" type="button" onClick={() => void reviewEvidence(evidence, 'reject')} disabled={evidenceReviewBusy !== null}>No validar</button></div></div>}
                   </article>
                 ))}
                 {dashboard && dashboard.evidence.length === 0 && <p className="evidence-empty">{role === 'collaborator' ? 'Aún no registras evidencias. Agrega un hito, aprendizaje o certificación para enriquecer la conversación de desarrollo.' : 'La persona aún no ha registrado evidencias para revisar.'}</p>}
@@ -592,7 +641,7 @@ export default function Home() {
             <section className="panel orientation-panel" id="orientacion">
               <div className="panel-heading"><div><h2>Análisis y orientación de mi perfil</h2><p className="panel-subtitle">La IA analiza qué haces, cómo trabajas y qué necesita tu perfil actual según el mapa de talento.</p></div><Sparkles className="panel-sparkle" aria-hidden="true" /></div>
               <button className="approve-button orientation-button" type="button" onClick={() => void requestOrientation()} disabled={role !== 'collaborator' || orientationBusy || !profile?.profileCompleted || (dashboard?.workActivities?.length === 0 && dashboard?.evidence?.length === 0)}>{orientationBusy ? 'Preparando borrador…' : orientation ? 'Actualizar análisis' : 'Analizar mi perfil (borrador IA)'}</button>
-              <p className="ai-disclaimer" role="note"><strong>Orientación, no validación.</strong> Lo generado por IA es una sugerencia basada en la información declarada y puede no reflejar por completo tu caso real. Úsala para comprender tu avance y preparar conversaciones sobre tu carrera; debe contrastarse con tu líder y, para cualquier validación o cambio oficial, contar con la aprobación de RR. HH.</p>
+              <p className="ai-disclaimer" role="note"><strong>Orientación, no validación.</strong> Lo generado por IA es una sugerencia basada en la información declarada y puede no reflejar por completo tu caso real. Úsala para comprender tu avance y preparar conversaciones sobre tu carrera; debe contrastarse con tu líder y, para cualquier validación o cambio oficial, contar con la aprobación de People.</p>
               {orientationError && <p className="form-error" role="alert">{orientationError}</p>}
               {orientation && (
                 <div className="orientation-result" aria-live="polite">
@@ -611,9 +660,15 @@ export default function Home() {
                     <div className="analysis-block guidance"><span className="analysis-kicker"><Sparkles aria-hidden="true" />Cómo seguir mejorando</span><ul>{orientation.developmentGuidance.map((item) => <li key={item}>{item}</li>)}</ul></div>
                   </div>
                   {orientation.missingInformation.length > 0 && <div className="analysis-missing"><strong>Para afinar la orientación</strong><span>{orientation.missingInformation.join(' · ')}</span></div>}
-                  <small>Orientación sugerida por IA; no valida tu situación real ni modifica tu categoría. Requiere contraste con tu líder y aprobación de RR. HH. para cualquier cambio oficial · {orientation.updatedAt ? 'Actualizado ' + new Date(orientation.updatedAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' }) : ''}</small>
+                  <small>Orientación sugerida por IA; no valida tu situación real ni modifica tu categoría. Requiere contraste con tu líder y aprobación de People para cualquier cambio oficial · {orientation.updatedAt ? 'Actualizado ' + new Date(orientation.updatedAt).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric' }) : ''}</small>
                 </div>
               )}
+            </section>
+
+            <section className="panel history-panel" id="historial">
+              <div className="panel-heading"><div><h2>{role === 'collaborator' ? 'Mi historial' : 'Historial de ' + firstName}</h2><p className="panel-subtitle">Contexto actual de desarrollo y la última orientación disponible.</p></div><History aria-hidden="true" className="history-icon" /></div>
+              <div className="history-person"><span className="avatar">{initials}</span><div><strong>{profile?.fullName ?? 'Perfil en carga'}</strong><p>Perfil de desarrollo · {profile?.currentJobRole ?? 'Rol por completar'}</p></div><span className="history-ai"><Bot aria-hidden="true" /> Orientación asistida por IA</span></div>
+              <div className="history-orientation" aria-live="polite">{orientation ? <><div><span className={'analysis-band band-' + orientation.maturityBand}>{maturityLabels[orientation.maturityBand]}</span><small>Tramo de madurez orientativo · confianza {confidenceLabels[orientation.maturityConfidence]}</small></div><p>{orientation.maturitySummary}</p><small>Resumen basado en las tareas declaradas y sus estados de revisión. Es una orientación para conversar con el líder; no modifica ninguna categoría oficial.</small></> : <><div><span className="history-pending">Sin orientación vigente</span><small>Tramo de madurez orientativo</small></div><p>Cuando exista un análisis, aquí se explicará de forma breve cómo las tareas registradas se relacionan con el tramo orientativo.</p></>}</div>
             </section>
 
             <section className="panel career-panel career-explorer" id="ruta" data-family={mapFamily?.id}>
@@ -673,15 +728,15 @@ export default function Home() {
       <aside className="copilot" aria-label="Asistente de desarrollo">
         <div className="copilot-head"><span className="ai-orb"><Bot aria-hidden="true" /></span><span><strong>Guía de desarrollo</strong><small><i /> Disponible</small></span><button aria-label="Cerrar asistente"><X aria-hidden="true" /></button></div>
         <div className="copilot-body">
-          <div className="assistant-message"><span className="mini-orb"><Sparkles aria-hidden="true" /></span><div><p>Puedo ayudarte a entender tu tramo orientativo, lo que necesita tu perfil y cómo convertir tu trabajo en ejemplos para conversar.</p><small>Mis respuestas son sugerencias y pueden no reflejar por completo tu caso real. No evalúo personas ni tomo decisiones de carrera: contrástalas con tu líder y con RR. HH. antes de cualquier validación oficial.</small></div></div>
-          {messages.map((message, index) => <div className="assistant-message followup" key={message + index}><span className="mini-orb"><Sparkles aria-hidden="true" /></span><div><p>{message}</p><small>Borrador de orientación: úsalo para guiar tu carrera, no como una validación. Requiere contraste con tu líder y aprobación de RR. HH. para cualquier cambio oficial.</small></div></div>)}
+          <div className="assistant-message"><span className="mini-orb"><Sparkles aria-hidden="true" /></span><div><p>Puedo ayudarte a entender tu tramo orientativo, lo que necesita tu perfil y cómo convertir tu trabajo en ejemplos para conversar.</p><small>Mis respuestas son sugerencias y pueden no reflejar por completo tu caso real. No evalúo personas ni tomo decisiones de carrera: contrástalas con tu líder y con People antes de cualquier validación oficial.</small></div></div>
+          {messages.map((message, index) => <div className="assistant-message followup" key={message + index}><span className="mini-orb"><Sparkles aria-hidden="true" /></span><div><p>{message}</p><small>Borrador de orientación: úsalo para guiar tu carrera, no como una validación. Requiere contraste con tu líder y aprobación de People para cualquier cambio oficial.</small></div></div>)}
           {isThinking && <div className="thinking">Revisando criterios y evidencias…</div>}
           <div className="suggestions"><button onClick={() => void askGuide('¿Por qué mi análisis propone este tramo de madurez?')}>¿Por qué aparece este tramo?</button><button onClick={() => void askGuide('¿Qué necesita mi perfil actual según el mapa de talento?')}>¿Qué necesita mi perfil actual?</button><button onClick={() => void askGuide('¿Cómo puedo mejorar a partir de las tareas que realizo?')}>¿Cómo puedo mejorar desde mi trabajo?</button></div>
         </div>
         <form className="prompt-box" onSubmit={(event) => { event.preventDefault(); void askGuide(prompt); }}>
           <label htmlFor="prompt">Conversa sobre tu desarrollo</label>
           <div><input id="prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Escribe tu pregunta..." /><button type="submit" disabled={isThinking} aria-label="Enviar mensaje"><Send aria-hidden="true" /></button></div>
-          <small>La IA puede equivocarse: es una sugerencia para guiar tu carrera, no una validación de tu caso. Contrástala con tu líder y RR. HH.</small>
+          <small>La IA puede equivocarse: es una sugerencia para guiar tu carrera, no una validación de tu caso. Contrástala con tu líder y People.</small>
         </form>
       </aside>
 

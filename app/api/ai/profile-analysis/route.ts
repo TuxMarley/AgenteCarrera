@@ -25,9 +25,9 @@ Debes proponer un tramo orientativo Growth Mindset siguiendo estrictamente esta 
 Si la información es insuficiente, selecciona el tramo provisional más cercano con confianza baja. Nunca interpretes la ausencia de evidencia como falta de capacidad.
 No evalúas el valor, desempeño o potencial de la persona ni tomas decisiones de promoción, categoría, compensación o elegibilidad. El tramo es una referencia conversacional, no una decisión laboral.
 El campo "rolActual" es el cargo en el que la empresa posicionó a la persona. El campo "siguienteRol" es la referencia del modelo para el siguiente escalón; úsala solo como orientación de desarrollo.
-Usa exclusivamente el contexto entregado. Relaciona tareas y evidencias solo con los criterios explicitamente incluidos; si no hay suficiente respaldo, dilo como información faltante. Las tareas y evidencias son declaraciones de la persona, no hechos validados. Una evidencia con estado "validated" fue revisada por una persona; las que estén "pending" o "rejected" no confirman un hecho ni deben usarse como prueba suficiente.
-No infieras atributos sensibles. Distingue hechos declarados de inferencias. Presenta toda conclusión como una sugerencia de orientación que puede no reflejar por completo el caso real. Debe contrastarse directamente con el líder y cualquier validación o cambio oficial requiere la aprobación de RR. HH. Responde en español claro y toda salida debe requerir validación humana.`;
-const privateReviewInstruction = `Si el contexto incluye "observacionPrivadaDeRevision", úsala únicamente como contexto interno para priorizar qué señales conviene contrastar. Nunca la cites, parafrasees, menciones ni reveles su existencia en ningún campo de salida. No uses esa observación por sí sola como evidencia de desempeño, potencial o una decisión laboral; si no coincide con información declarada, señala de forma neutral la información que falta por contrastar.`;
+Usa exclusivamente el contexto entregado. Relaciona tareas y evidencias solo con los criterios explicitamente incluidos; si no hay suficiente respaldo, dilo como información faltante. Las tareas y evidencias son declaraciones de la persona, no hechos validados. Una evidencia o tarea con estado de revisión "validated" fue revisada por una persona; las que estén pendientes, rechazadas o con ajustes solicitados no confirman un hecho ni deben usarse como prueba suficiente.
+No infieras atributos sensibles. Distingue hechos declarados de inferencias. Presenta toda conclusión como una sugerencia de orientación que puede no reflejar por completo el caso real. Debe contrastarse directamente con el líder y cualquier validación o cambio oficial requiere la aprobación de People. Responde en español claro y toda salida debe requerir validación humana.`;
+const privateReviewInstruction = `Si el contexto incluye "observacionPrivadaDeRevision" o "feedbackPrivadoLiderSobreTareas", úsalo únicamente como contexto interno para priorizar qué señales conviene contrastar. Nunca cites, parafrasees, menciones ni reveles la observación, el feedback ni su existencia en ningún campo de salida. No uses información privada por sí sola como evidencia de desempeño, potencial o una decisión laboral; si no coincide con información declarada, señala de forma neutral la información que falta por contrastar.`;
 
 const outputBrevity = 'Sé conciso: maturitySummary debe tener entre 35 y 65 palabras y explicar por qué el tramo se relaciona con las acciones descritas; workSummary hasta 90 palabras; hasta 3 elementos breves por lista y hasta 2 en missingInformation.';
 
@@ -60,13 +60,13 @@ function extractOutputText(payload: unknown): string {
 function localFallback(
   currentRole: string,
   nextRole: string | undefined,
-  completedTasks: number,
+  validatedCompletedTasks: number,
   taskCount: number,
   evidenceCount: number,
   roleNeeds: string[],
 ): ProfileOrientation {
   const nextLabel = nextRole ?? 'el siguiente rol de referencia';
-  const maturityBand = completedTasks > 0 ? 'T2' : 'T1';
+  const maturityBand = validatedCompletedTasks > 0 ? 'T2' : 'T1';
   return {
     maturityBand,
     maturityConfidence: 'low',
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
       profileCompleted: boolean;
       officialCategory: string | null;
     } | null;
-    const workActivities = dashboard.workActivities as Array<{ title: string; description: string; status: string }>;
+    const workActivities = dashboard.workActivities as Array<{ title: string; description: string; status: string; validationStatus: string; privateFeedback?: Array<{ content:string; createdAt:number }> }>;
     const evidence = dashboard.evidence as Array<{ title: string; description: string; evidenceType: string; validationStatus: string }>;
 
     if (!profile?.profileCompleted) {
@@ -136,7 +136,7 @@ export async function POST(request: Request) {
       orientation = localFallback(
         currentRoleLabel,
         nextRoleLabel,
-        workActivities.filter((item) => item.status === 'completed').length,
+        workActivities.filter((item) => item.status === 'completed' && item.validationStatus === 'validated').length,
         workActivities.length,
         evidence.length,
         currentRoleSelection?.role.profileNeeds ?? [],
@@ -173,10 +173,24 @@ export async function POST(request: Request) {
           T2:'Muestra madurez y autonomía; perfecciona el rol y aclara el camino que quiere recorrer.',
           T3:'Ha elegido su camino y muestra preparación para un desafío concreto alineado con él.',
         },
-        tareasDeclaradas: compactRecords(workActivities, 8).map(({ title, description, status }) => ({
+        tareasDeclaradas: compactRecords(workActivities, 8).map(({ title, description, status, validationStatus }) => ({
           titulo: compactText(title, 120),
           detalle: compactText(description, 400),
           estado: status,
+          estadoRevision: validationStatus,
+        })),
+        feedbackPrivadoLiderSobreTareas: compactRecords(
+          workActivities.flatMap((activity) => (activity.privateFeedback ?? []).map((feedback) => ({
+            tarea: activity.title,
+            texto: feedback.content,
+            registradoEn: feedback.createdAt,
+          }))),
+          8,
+        ).map(({ tarea, texto, registradoEn }) => ({
+          tarea: compactText(tarea, 120),
+          texto: compactText(texto, 600),
+          registradoEn,
+          uso: 'Contexto interno: no debe aparecer ni inferirse en la respuesta.',
         })),
         evidencias: compactRecords(evidence, 6).map(({ title, description, evidenceType, validationStatus }) => ({
           titulo: compactText(title, 100),

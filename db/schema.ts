@@ -34,8 +34,14 @@ export const evidence = sqliteTable('evidence', {
 export const workActivities = sqliteTable('work_activities', {
   id: text('id').primaryKey(), userId: text('user_id').notNull(), title: text('title').notNull(), description: text('description').notNull(),
   status: text('status', { enum: ['in_progress', 'completed'] }).notNull(), startedAt: integer('started_at'), completedAt: integer('completed_at'),
-  createdAt: integer('created_at').notNull(), updatedAt: integer('updated_at').notNull(),
-}, (table) => [index('idx_work_activities_user_updated').on(table.userId, table.updatedAt), index('idx_work_activities_user_status').on(table.userId, table.status)]);
+  validationStatus: text('validation_status', { enum: ['pending_review', 'validated', 'changes_requested'] }).notNull().default('pending_review'),
+  reviewedBy: text('reviewed_by'), reviewedAt: integer('reviewed_at'), createdAt: integer('created_at').notNull(), updatedAt: integer('updated_at').notNull(),
+}, (table) => [index('idx_work_activities_user_updated').on(table.userId, table.updatedAt), index('idx_work_activities_user_status').on(table.userId, table.status), index('idx_work_activities_user_validation').on(table.userId, table.validationStatus)]);
+
+/** Feedback privado del líder sobre una tarea. Nunca se entrega a la persona colaboradora. */
+export const workActivityFeedback = sqliteTable('work_activity_feedback', {
+  id: text('id').primaryKey(), workActivityId: text('work_activity_id').notNull(), authorId: text('author_id').notNull(), content: text('content').notNull(), createdAt: integer('created_at').notNull(),
+}, (table) => [index('idx_work_activity_feedback_activity_created').on(table.workActivityId, table.createdAt)]);
 
 export const actionItems = sqliteTable('action_items', {
   id: text('id').primaryKey(), userId: text('user_id').notNull(), title: text('title').notNull(), description: text('description').notNull(),
