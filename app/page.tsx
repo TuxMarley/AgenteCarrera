@@ -219,6 +219,8 @@ export default function Home() {
   const effectiveMapRoleId = mapRoleId || (mapTrack?.id === currentCareerSelection?.track.id ? currentCareerSelection?.role.id : mapTrack?.roles[0]?.id) || '';
   const exploredRole = mapTrack?.roles.find((item) => item.id === effectiveMapRoleId) ?? mapTrack?.roles[0];
   const nextCareerRole = currentCareerSelection ? getNextRole(currentCareerSelection.role.id)?.role : undefined;
+  const totalCareerTracks = careerFamilies.reduce((total, family) => total + family.tracks.length, 0);
+  const totalCareerRoles = careerFamilies.reduce((total, family) => total + family.tracks.reduce((trackTotal, track) => trackTotal + track.roles.length, 0), 0);
   const nextAction = useMemo(() => {
     const workActivities = dashboard?.workActivities ?? [];
     if (role === 'leader') {
@@ -353,6 +355,28 @@ export default function Home() {
     } finally {
       setTaskBusy(false);
     }
+  }
+
+  function exploreCareerFamily(familyId: string) {
+    const family = careerFamilies.find((item) => item.id === familyId);
+    const track = family?.tracks[0];
+    const selectedRole = track?.roles[0];
+    if (!family || !track || !selectedRole) return;
+    setMapFamilyId(family.id);
+    setMapTrackId(track.id);
+    setMapRoleId(selectedRole.id);
+  }
+
+  function prepareTaskFromMapRole() {
+    if (!exploredRole || !mapFamily || !mapTrack || role !== 'collaborator') return;
+    const aspect = exploredRole.scopeSignals?.[0] ?? exploredRole.profileNeeds?.[0] ?? exploredRole.mission ?? mapFamily.purpose;
+    setTaskForm({
+      title:`Explorar ${exploredRole.label} en mi trabajo`,
+      description:`Quiero documentar un ejemplo de trabajo para conversar sobre el rol ${exploredRole.label}. Aspecto de referencia: ${aspect} Referencia del mapa: ${mapFamily.label} · ${mapTrack.label} · pág. ${exploredRole.sourcePage}. Describe el contexto, las acciones, las decisiones y el resultado que esperas observar.`,
+    });
+    setTaskError('');
+    setTaskNotice('Revisa y personaliza la tarea antes de crearla. Esta referencia no confirma una brecha ni modifica tu rol.');
+    window.location.hash = 'tareas';
   }
 
   async function updateTaskStatus(activity: WorkActivity) {
@@ -801,8 +825,28 @@ export default function Home() {
 
             <section className="panel career-panel career-explorer" id="ruta" data-family={mapFamily?.id}>
               <div className="panel-heading">
-                <div><h2>Explora el mapa de carrera</h2><p className="panel-subtitle">Recorre familias, rutas y roles para entender qué cambia entre una posición y la siguiente.</p></div>
+                <div><h2>Explora el mapa de carrera</h2><p className="panel-subtitle">Una visión general del modelo GDN-e Chile y un detalle por familia para orientar conversaciones de desarrollo.</p></div>
                 <span className="model-badge">{CAREER_MODEL_VERSION}</span>
+              </div>
+              <div className="map-overview" aria-label="Visión general del modelo de carrera GDN-e Chile">
+                <div className="map-overview-heading">
+                  <div><span className="map-eyebrow">Visión general</span><h3>Modelo de carrera GDN-e Chile</h3><p>{careerFamilies.length} familias, {totalCareerTracks} rutas y {totalCareerRoles} roles disponibles como referencia.</p></div>
+                  {currentCareerSelection && <div className="map-current-location"><Compass aria-hidden="true" /><div><span>Tu ubicación actual</span><strong>{currentCareerSelection.role.label}</strong><small>{currentCareerSelection.family.label} · {currentCareerSelection.track.label}</small></div></div>}
+                </div>
+                <div className="map-family-grid">
+                  {careerFamilies.map((family) => {
+                    const roleCount = family.tracks.reduce((total, track) => total + track.roles.length, 0);
+                    const isCurrentFamily = family.id === currentCareerSelection?.family.id;
+                    const isSelectedFamily = family.id === mapFamily?.id;
+                    return <button className={['map-family-card', isCurrentFamily ? 'current' : '', isSelectedFamily ? 'selected' : ''].join(' ')} type="button" key={family.id} onClick={() => exploreCareerFamily(family.id)} aria-pressed={isSelectedFamily}>
+                      <span className="map-family-card-meta">{family.tracks.length} {family.tracks.length === 1 ? 'ruta' : 'rutas'} · {roleCount} roles</span>
+                      <strong>{family.label}</strong>
+                      <small>{family.purpose}</small>
+                      {isCurrentFamily && <span className="map-family-current">Tu ubicación · {currentCareerSelection?.role.label}</span>}
+                    </button>;
+                  })}
+                </div>
+                <p className="map-reference-note">El mapa es una referencia para explorar y conversar. No confirma preparación para un rol ni implica un cambio de categoría.</p>
               </div>
               <div className="map-controls">
                 <label>Familia de talento
@@ -844,6 +888,11 @@ export default function Home() {
                     <div><span className="detail-title"><Compass aria-hidden="true" />Cómo se reconoce en el trabajo</span><ul>{(exploredRole.waysOfWorking ?? ['Contrastar la misión del rol con tareas, decisiones, resultados y feedback observables.']).map((item) => <li key={item}>{item}</li>)}</ul></div>
                   </div>
                   {exploredRole.scopeSignals && <div className="role-scope-signals"><div><span className="detail-title"><Check aria-hidden="true" />Señales para conversar sobre el alcance del rol</span><p>Ejemplos que ayudan a contrastar el rol con el trabajo observado. No son una lista automática de requisitos ni una decisión de promoción.</p></div><ul>{exploredRole.scopeSignals.map((item) => <li key={item}>{item}</li>)}</ul><small>Fuente: Mapa de talento GDNe IBIOL · págs. {exploredRole.scopeSignalsSourcePages?.join(' y ')}.</small></div>}
+                  <div className="map-task-bridge">
+                    <div><span className="detail-title"><ClipboardCheck aria-hidden="true" />Conecta este rol con tu trabajo</span><p>Elige un aspecto de esta referencia y conviértelo en una tarea que puedas describir con contexto, decisiones y evidencia. La plataforma no determina qué te falta para llegar a este rol.</p></div>
+                    {role === 'collaborator' ? <button className="outline-button" type="button" onClick={prepareTaskFromMapRole} disabled={!profile?.profileCompleted}>Preparar tarea desde este rol</button> : <small>La persona colaboradora puede preparar una tarea desde esta referencia.</small>}
+                    {role === 'collaborator' && !profile?.profileCompleted && <small>Completa primero tu perfil de desarrollo para preparar una tarea.</small>}
+                  </div>
                   {!exploredRole.mission && <p className="normalization-note">Esta ficha está disponible como referencia de ruta. Su detalle será ampliado durante la normalización completa del mapa.</p>}
                 </div>
               )}
